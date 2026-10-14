@@ -76,7 +76,7 @@ export interface DraftRec {
 
 export type DraftInput = Omit<DraftRec, "id" | "updated_at">;
 
-export type AudienceKind = "custom" | "version" | "country" | "language" | "timezone";
+export type AudienceKind = "custom" | "version" | "country" | "timezone";
 
 export interface AudienceTopic {
   id: string;

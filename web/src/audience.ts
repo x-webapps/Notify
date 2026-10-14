@@ -12,7 +12,6 @@ export function topicName(kind: AudienceKind, value: string): string {
   switch (kind) {
     case "version": return `v_${v}`;
     case "country": return `country_${v.toUpperCase()}`;
-    case "language": return `lang_${v.toLowerCase()}`;
     case "timezone": return `tz_${clean(value.replace(/\//g, "_"))}`;
     default: return v;
   }
@@ -43,12 +42,41 @@ export function decodeAudience(value: string): { names: string[]; mode: "all" | 
   return { mode: m === "any" ? "any" : "all", names: rest.split(",").filter(Boolean) };
 }
 
-export const KOTLIN_SNIPPET = `// Call once on launch (e.g. in Application.onCreate), after FirebaseApp is ready.
-val fcm = FirebaseMessaging.getInstance()
-fun topic(s: String) = s.replace(Regex("[^a-zA-Z0-9_.~%-]"), "_")
+export const KOTLIN_SNIPPET = `package com.example.app.notifications
 
-fcm.subscribeToTopic("all")
-fcm.subscribeToTopic("v_" + BuildConfig.VERSION_CODE)
-fcm.subscribeToTopic("country_" + java.util.Locale.getDefault().country.uppercase())
-fcm.subscribeToTopic("lang_" + java.util.Locale.getDefault().language.lowercase())
-fcm.subscribeToTopic("tz_" + topic(java.util.TimeZone.getDefault().id))`;
+import android.content.Context
+import androidx.core.content.pm.PackageInfoCompat
+import com.google.firebase.messaging.FirebaseMessaging
+import java.util.Locale
+import java.util.TimeZone
+
+/** Keeps this device subscribed to the audience topics used by the Push Admin panel. */
+object PushTopics {
+    private const val PREFS = "push_topics"
+
+    /** Call on every app start (e.g. Application.onCreate). Only changed topics are re-subscribed. */
+    fun sync(context: Context) {
+        FirebaseMessaging.getInstance().subscribeToTopic("all")
+
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        val version = PackageInfoCompat.getLongVersionCode(info)
+        val country = Locale.getDefault().country.uppercase()
+        val zone = TimeZone.getDefault().id.replace(Regex("[^a-zA-Z0-9_.~%-]"), "_")
+
+        swap(context, "version", "v_$version")
+        if (country.isNotEmpty()) swap(context, "country", "country_$country")
+        swap(context, "timezone", "tz_$zone")
+    }
+
+    /** Subscribes to [topic]; leaves the topic previously stored for [slot] if it changed. */
+    private fun swap(context: Context, slot: String, topic: String) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val old = prefs.getString(slot, null)
+        if (old == topic) return
+        val fcm = FirebaseMessaging.getInstance()
+        if (old != null) fcm.unsubscribeFromTopic(old)
+        fcm.subscribeToTopic(topic).addOnSuccessListener {
+            prefs.edit().putString(slot, topic).apply()
+        }
+    }
+}`;

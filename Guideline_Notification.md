@@ -207,7 +207,10 @@ class MainActivity : ComponentActivity() {
 }
 ```
 
-## 8. Send from Firebase Console
+## 8. Send from the Push Admin panel (or Firebase Console)
+The Push Admin panel sends the same message format (`notification` + data key `url`, channel `app_updates_channel`), so no extra app code is needed beyond sections 3 to 7 and the topics in section 11.
+
+To send from the Firebase Console instead:
 1. **Messaging → New campaign → Firebase Notification messages**
 2. Fill title and text.
 3. **Additional options → Custom data**
@@ -247,15 +250,90 @@ Use an emulator image **with Google Play**, otherwise FCM won't work.
 | Works only in foreground | `launchMode="singleTop"` missing, or the data key is wrong |
 | White square icon | Use a monochrome transparent icon and set `com.google.firebase.messaging.default_notification_icon` meta-data |
 | Conflict with another push SDK | Remove OneSignal/others, or only one SDK can own FCM |
+| Panel says "Sent" but the device gets nothing | The app never subscribed: check `PushTopics.sync()` runs, the device is online, and wait a few minutes after the first launch |
+| Audience send reaches nobody | The topic name in the panel must match exactly (`country_IN`, `v_42`, `tz_Asia_Kolkata`); install a build that includes `PushTopics` |
 
-## 11. Optional improvements
-- **Topics**: `FirebaseMessaging.getInstance().subscribeToTopic("all")` to message everyone without tokens.
+## 11. Audience topics (required for the Push Admin panel)
+The panel sends to **topics**, not to stored device tokens, so the app must subscribe on every launch.
+Topic names are fixed; the panel's **Audience** tab uses exactly these:
+
+| Topic | Meaning | Example |
+|---|---|---|
+| `all` | Every user (the panel's default target) | `all` |
+| `v_<versionCode>` | Installed app version | `v_42` |
+| `country_<ISO>` | Country from the device region setting | `country_IN` |
+| `tz_<Zone_Name>` | Device time zone (`/` becomes `_`) | `tz_Asia_Kolkata` |
+
+`notifications/PushTopics.kt`
+```kotlin
+package com.example.app.notifications
+
+import android.content.Context
+import androidx.core.content.pm.PackageInfoCompat
+import com.google.firebase.messaging.FirebaseMessaging
+import java.util.Locale
+import java.util.TimeZone
+
+/** Keeps this device subscribed to the audience topics used by the Push Admin panel. */
+object PushTopics {
+    private const val PREFS = "push_topics"
+
+    /** Call on every app start (e.g. Application.onCreate). Only changed topics are re-subscribed. */
+    fun sync(context: Context) {
+        FirebaseMessaging.getInstance().subscribeToTopic("all")
+
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        val version = PackageInfoCompat.getLongVersionCode(info)
+        val country = Locale.getDefault().country.uppercase()
+        val zone = TimeZone.getDefault().id.replace(Regex("[^a-zA-Z0-9_.~%-]"), "_")
+
+        swap(context, "version", "v_$version")
+        if (country.isNotEmpty()) swap(context, "country", "country_$country")
+        swap(context, "timezone", "tz_$zone")
+    }
+
+    /** Subscribes to [topic]; leaves the topic previously stored for [slot] if it changed. */
+    private fun swap(context: Context, slot: String, topic: String) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val old = prefs.getString(slot, null)
+        if (old == topic) return
+        val fcm = FirebaseMessaging.getInstance()
+        if (old != null) fcm.unsubscribeFromTopic(old)
+        fcm.subscribeToTopic(topic).addOnSuccessListener {
+            prefs.edit().putString(slot, topic).apply()
+        }
+    }
+}
+```
+
+Call it once at startup:
+```kotlin
+class ApplicationClass : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannels()
+        PushTopics.sync(this)
+    }
+}
+```
+
+Notes:
+- Subscriptions are stored by Firebase, so nothing is kept in your own database.
+- When the user updates the app, the helper leaves the old `v_` topic and joins the new one, so "version 42 only" counts stay accurate.
+- The country comes from the phone's region setting, not from GPS. Users with no region set simply have no `country_` topic.
+- A new subscription can take a few minutes to become active on FCM's side.
+- Target several audiences in the panel with *Match all* (AND) or *Match any* (OR). FCM allows at most 5 topics per condition.
+- Language is intentionally not used.
+
+## 12. Optional improvements
 - **Domain allowlist**: in `validate()`, check `uri.host` against your own domains.
 - **Play Store links**: also allow the `market` scheme if you want `market://details?id=...`.
 - **Monochrome small icon** and separate channels (Updates / Offers).
 - **Analytics**: log a `notification_open` event inside `handle()`.
+- **Variables**: the panel replaces `{app_name}`, `{date}`, `{time}` and `{day}` before sending, so the app needs no code for them.
+- **Big image**: the panel can send an `image` URL (https). Android shows it automatically when the app is in the background; for foreground messages load it yourself and use `BigPictureStyle`.
 
-## 12. Security notes
+## 13. Security notes
 - Always validate the URL (scheme + host) before opening. Never open `intent:`, `file:`, `javascript:` or custom schemes from data.
 - Only people with access to your Firebase project can send these messages, so protect that account with 2FA.
 - Do not put secrets or personal data in notification data.
@@ -268,4 +346,7 @@ Use an emulator image **with Google Play**, otherwise FCM won't work.
 - [ ] Channel created in `Application.onCreate()`
 - [ ] `handle()` called in `onCreate` and `onNewIntent`
 - [ ] `POST_NOTIFICATIONS` permission requested (Android 13+)
+- [ ] `PushTopics.kt` added and `PushTopics.sync(this)` called in `Application.onCreate()`
+- [ ] Panel: app added with the correct **FCM project ID**; audiences saved in the Audience tab
 - [ ] Tested: foreground, background, killed, invalid URL
+- [ ] Tested: send to `all`, then to one audience (e.g. `country_IN`) and confirm only matching devices receive it

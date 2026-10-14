@@ -7,7 +7,6 @@ describe("topicName", () => {
   it("builds the names the Android app subscribes to", () => {
     expect(topicName("version", "42")).toBe("v_42");
     expect(topicName("country", "in")).toBe("country_IN");
-    expect(topicName("language", "HI")).toBe("lang_hi");
     expect(topicName("timezone", "Asia/Kolkata")).toBe("tz_Asia_Kolkata");
     expect(topicName("custom", "beta users")).toBe("beta_users");
     expect(topicName("custom", "  ")).toBe("");

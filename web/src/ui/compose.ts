@@ -104,7 +104,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     "select",
     {},
     h("option", { value: "default" }, `All users (topic “${app.default_topic}”)`),
-    h("option", { value: "audience" }, "Audience (version, country, language…)"),
+    h("option", { value: "audience" }, "Audience (version, country, time zone)"),
     h("option", { value: "topic" }, "Custom topic"),
     h("option", { value: "condition" }, "Condition (advanced)"),
     h("option", { value: "token" }, "Single device token"),

@@ -25,7 +25,7 @@ create table public.audience_topics (
   app_id uuid not null references public.apps(id) on delete cascade,
   name text not null check (name ~ '^[a-zA-Z0-9_.~%-]{1,255}$'),
   label text not null check (char_length(label) between 1 and 60),
-  kind text not null default 'custom' check (kind in ('custom', 'version', 'country', 'language', 'timezone')),
+  kind text not null default 'custom' check (kind in ('custom', 'version', 'country', 'timezone')),
   created_at timestamptz not null default now(),
   unique (app_id, name)
 );

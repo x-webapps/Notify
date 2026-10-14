@@ -8,7 +8,6 @@ const KIND_LABEL: Record<AudienceKind, string> = {
   custom: "Custom",
   version: "App version",
   country: "Country",
-  language: "Language",
   timezone: "Time zone",
 };
 
@@ -16,7 +15,6 @@ const HELP: Record<AudienceKind, { label: string; placeholder: string }> = {
   custom: { label: "Topic name", placeholder: "beta_testers" },
   version: { label: "Version code", placeholder: "42" },
   country: { label: "Country code (2 letters)", placeholder: "IN" },
-  language: { label: "Language code", placeholder: "hi" },
   timezone: { label: "Time zone", placeholder: "Asia/Kolkata" },
 };
 
@@ -102,7 +100,7 @@ export const renderAudience = (id: string) => async (view: HTMLElement): Promise
     "section",
     { class: "card" },
     h("div", { class: "card-head" }, h("h2", {}, "Android code"), copy),
-    h("p", { class: "muted" }, "Add this to your Android app so each device joins its own audience topics. Firebase stores the subscriptions, so nothing is saved in your database."),
+    h("p", { class: "muted" }, "Add this file to your Android app and call PushTopics.sync(this) in Application.onCreate(). Each device then joins its version, country and time-zone topics, and leaves old ones. Firebase stores the subscriptions, so nothing is saved in your database."),
     code,
   );
 
