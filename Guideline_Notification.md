@@ -263,6 +263,7 @@ Topic names are fixed; the panel's **Audience** tab uses exactly these:
 | `v_<versionCode>` | Installed app version | `v_42` |
 | `country_<ISO>` | Country from the device region setting | `country_IN` |
 | `tz_<Zone_Name>` | Device time zone (`/` becomes `_`) | `tz_Asia_Kolkata` |
+| `utc_<p\|m>HHMM` | Current UTC offset (`p` = plus, `m` = minus). Used for **device-local-time sends** | `utc_p0530`, `utc_m0330` |
 
 `notifications/PushTopics.kt`
 ```kotlin
@@ -273,6 +274,7 @@ import androidx.core.content.pm.PackageInfoCompat
 import com.google.firebase.messaging.FirebaseMessaging
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.math.abs
 
 /** Keeps this device subscribed to the audience topics used by the Push Admin panel. */
 object PushTopics {
@@ -290,6 +292,11 @@ object PushTopics {
         swap(context, "version", "v_$version")
         if (country.isNotEmpty()) swap(context, "country", "country_$country")
         swap(context, "timezone", "tz_$zone")
+
+        // UTC offset topic, used for "send at 9:00 AM device local time"
+        val offsetMin = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60000
+        val sign = if (offsetMin < 0) "m" else "p"
+        swap(context, "offset", "utc_" + sign + "%02d%02d".format(abs(offsetMin) / 60, abs(offsetMin) % 60))
     }
 
     /** Subscribes to [topic]; leaves the topic previously stored for [slot] if it changed. */
@@ -324,6 +331,7 @@ Notes:
 - A new subscription can take a few minutes to become active on FCM's side.
 - Target several audiences in the panel with *Match all* (AND) or *Match any* (OR). FCM allows at most 5 topics per condition.
 - Language is intentionally not used.
+- **Device-local-time sends** ("9:00 AM on each phone") need the `utc_` topic. The panel creates one scheduled send per offset. The offset is refreshed each time the app starts, so a phone that crossed a daylight-saving change but was not opened since may receive it an hour off.
 
 ## 12. Optional improvements
 - **Domain allowlist**: in `validate()`, check `uri.host` against your own domains.

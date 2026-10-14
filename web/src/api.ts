@@ -1,5 +1,6 @@
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
+import type { PlannedSend } from "./localtime";
 import { bucketByDay, lastDays } from "./stats";
 import type {
   AppInput,
@@ -63,7 +64,7 @@ export async function importApps(inputs: AppInput[]): Promise<number> {
 }
 
 export async function lastNotification(appId: string): Promise<NotificationRec | null> {
-  const { data, error } = await supabase.from("notifications").select("*").eq("app_id", appId)
+  const { data, error } = await supabase.from("notifications").select("*").eq("app_id", appId).neq("kind", "local_child")
     .order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (error) fail(error);
   return (data as NotificationRec | null) ?? null;
@@ -77,7 +78,7 @@ export interface Page<T> {
 
 export async function listNotifications(appId: string, page: number, search: string): Promise<Page<NotificationRec>> {
   const from = page * PAGE_SIZE;
-  let q = supabase.from("notifications").select("*", { count: "exact" }).eq("app_id", appId);
+  let q = supabase.from("notifications").select("*", { count: "exact" }).eq("app_id", appId).neq("kind", "local_child");
   // Strip characters that have meaning inside a PostgREST filter expression.
   const term = search.replace(/[,()%*\\:]/g, " ").trim();
   if (term) q = q.or(`title.ilike.%${term}%,body.ilike.%${term}%`);
@@ -123,6 +124,70 @@ export async function cancelNotification(id: string): Promise<void> {
     .eq("id", id).eq("status", "scheduled").select("id");
   if (error) fail(error);
   if (!data || data.length === 0) throw new ApiError("It was already sent or is being sent, so it can't be cancelled.");
+}
+
+/** Cancels every not-yet-sent time zone of a local-time send. The database updates the parent's status. */
+export async function cancelLocalGroup(parentId: string): Promise<void> {
+  const { data, error } = await supabase.from("notifications").update({ status: "cancelled" })
+    .eq("parent_id", parentId).eq("status", "scheduled").select("id");
+  if (error) fail(error);
+  if (!data || data.length === 0) throw new ApiError("Nothing left to cancel: every time zone was already sent.");
+}
+
+export interface LocalChild {
+  id: string;
+  parent_id: string;
+  status: NotificationRec["status"];
+  scheduled_at: string | null;
+  local_offset_min: number | null;
+  error: string | null;
+}
+
+export async function listLocalChildren(parentIds: string[]): Promise<LocalChild[]> {
+  if (parentIds.length === 0) return [];
+  const { data, error } = await supabase.from("notifications")
+    .select("id,parent_id,status,scheduled_at,local_offset_min,error")
+    .in("parent_id", parentIds).order("scheduled_at").limit(2000);
+  if (error) fail(error);
+  return (data ?? []) as LocalChild[];
+}
+
+export interface LocalTimeRequest {
+  base: ComposePayload;
+  localTime: string; // HH:MM
+  plan: { send: PlannedSend; target: { type: "topic" | "condition"; value: string } }[];
+}
+
+/** Creates the parent row and one scheduled child per UTC offset. Returns the number of children. */
+export async function scheduleLocalTime(req: LocalTimeRequest, createdBy: string): Promise<number> {
+  const first = req.plan[0];
+  if (!first) throw new ApiError("No time zone is left to send to.");
+  const common = { ...req.base, created_by: createdBy };
+  const { data: parent, error: pe } = await supabase.from("notifications").insert({
+    ...common,
+    kind: "local_parent",
+    local_time: req.localTime,
+    status: "scheduled",
+    scheduled_at: first.send.at.toISOString(),
+  }).select("id").single();
+  if (pe) fail(pe);
+  const parentId = (parent as { id: string }).id;
+  const rows = req.plan.map(({ send, target }) => ({
+    ...common,
+    target_type: target.type,
+    target_value: target.value,
+    kind: "local_child",
+    parent_id: parentId,
+    local_offset_min: send.offsetMin,
+    status: "scheduled",
+    scheduled_at: send.at.toISOString(),
+  }));
+  const { error: ce } = await supabase.from("notifications").insert(rows);
+  if (ce) {
+    await supabase.from("notifications").delete().eq("id", parentId); // do not leave an empty parent behind
+    fail(ce);
+  }
+  return rows.length;
 }
 
 export async function deleteNotification(id: string): Promise<void> {
@@ -259,10 +324,10 @@ export async function loadDashboard(): Promise<DashboardData> {
   start.setDate(start.getDate() - 6);
   const [apps, recent, week, scheduled] = await Promise.all([
     listApps(),
-    supabase.from("notifications").select("*").order("created_at", { ascending: false }).limit(8),
-    supabase.from("notifications").select("status,created_at").in("status", ["sent", "failed"])
+    supabase.from("notifications").select("*").neq("kind", "local_child").order("created_at", { ascending: false }).limit(8),
+    supabase.from("notifications").select("status,created_at").neq("kind", "local_child").in("status", ["sent", "failed"])
       .gte("created_at", start.toISOString()).limit(5000),
-    supabase.from("notifications").select("id", { count: "exact", head: true }).eq("status", "scheduled"),
+    supabase.from("notifications").select("id", { count: "exact", head: true }).neq("kind", "local_child").eq("status", "scheduled"),
   ]);
   if (recent.error) fail(recent.error);
   if (week.error) fail(week.error);

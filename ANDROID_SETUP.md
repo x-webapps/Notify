@@ -25,7 +25,7 @@ To target by app version, country or time zone, add the `PushTopics` helper from
 ```kotlin
 PushTopics.sync(this) // in Application.onCreate(), after createNotificationChannels()
 ```
-It subscribes the device to `all`, `v_<versionCode>`, `country_<ISO>` and `tz_<Zone_Name>` (for example `tz_Asia_Kolkata`), and leaves the old version/country/time-zone topic when one changes. Firebase stores the subscriptions, so nothing is saved in your database. Then save the audiences you want to target in the panel's **Audience** tab. Language is intentionally not used.
+It subscribes the device to `all`, `v_<versionCode>`, `country_<ISO>`, `tz_<Zone_Name>` (for example `tz_Asia_Kolkata`) and `utc_<p|m>HHMM` (for example `utc_p0530`, needed for **device-local-time sends**), and leaves the old version/country/time-zone topic when one changes. Firebase stores the subscriptions, so nothing is saved in your database. Then save the audiences you want to target in the panel's **Audience** tab. Language is intentionally not used.
 
 ## 3. Channel, permission and link
 * Create a notification channel whose ID equals the app's **Channel ID** in the panel (default `app_updates_channel`), and set it as `com.google.firebase.messaging.default_notification_channel_id` in the manifest.

@@ -7,12 +7,14 @@ import {
   getTemplate,
   listAudience,
   saveDraft,
+  scheduleLocalTime,
   scheduleNotification,
   sendNow,
   uploadImage,
   type ComposePayload,
 } from "../api";
 import { buildAudienceTarget, decodeAudience, encodeAudience, MAX_TOPICS_IN_CONDITION } from "../audience";
+import { offsetLabel, planLocalSends, targetForOffset, type BaseTarget, type PastPolicy } from "../localtime";
 import { append, clear, confirmModal, field, h, showModal, toast } from "../dom";
 import type { AppRec, AudienceTopic, SendResult, TargetChoice, TargetType } from "../types";
 import {
@@ -187,6 +189,21 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
 
   const modeNow = h("input", { type: "radio", name: "mode", value: "now", checked: true });
   const modeLater = h("input", { type: "radio", name: "mode", value: "later" });
+  const modeLocal = h("input", { type: "radio", name: "mode", value: "local" });
+  const localDate = h("input", { type: "date", value: toLocalInputValue(new Date(Date.now() + 86_400_000)).slice(0, 10) });
+  const localClock = h("input", { type: "time", value: "09:00" });
+  const policySel = h("select", {}, h("option", { value: "skip" }, "Skip that time zone"), h("option", { value: "next_day" }, "Send it the next day"));
+  const fLocalDate = field("Date", localDate);
+  const fLocalClock = field("Local time on each device", localClock);
+  const fPolicy = field("If that time has already passed in a time zone", policySel);
+  const localSummary = h("div", { class: "audience-result mono muted" });
+  const localBox = h(
+    "div",
+    { class: "options local-box" },
+    h("div", { class: "options-grid" }, fLocalDate.wrap, fLocalClock.wrap),
+    h("div", { class: "local-rest" }, fPolicy.wrap, localSummary,
+      h("p", { class: "hint" }, "Each device gets the notification at this wall-clock time. Needs the app to subscribe to its UTC-offset topic (PushTopics, see the Audience tab).")),
+  );
   const when = h("input", { type: "datetime-local", value: toLocalInputValue(new Date(Date.now() + 3600_000)) });
   const testToken = h("input", { type: "text", autocomplete: "off", spellcheck: "false", placeholder: "Device token from Logcat" });
 
@@ -249,6 +266,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
 
   // ---- derived state
   const isLater = (): boolean => modeLater.checked;
+  const isLocal = (): boolean => modeLocal.checked;
   const selectedNames = (): string[] => audienceChecks.filter((c) => c.box.checked).map((c) => c.topic.name);
   const audienceMode = (): "all" | "any" => (modeAny.checked ? "any" : "all");
   const audienceTarget = (): { type: TargetType; value: string } | null => {
@@ -320,7 +338,16 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     const t = audienceTarget();
     audienceText.textContent = t ? (t.type === "topic" ? `Topic: ${t.value}` : t.value) : "Nothing selected";
     fWhen.wrap.hidden = !isLater();
-    sendBtn.textContent = isLater() ? "Schedule" : "Send now";
+    localBox.hidden = !isLocal();
+    sendBtn.textContent = isLocal() ? "Schedule local-time send" : isLater() ? "Schedule" : "Send now";
+    if (isLocal()) {
+      const plan = planLocalSends(localDate.value, localClock.value, policySel.value as PastPolicy);
+      const first = plan.sends[0];
+      const last = plan.sends[plan.sends.length - 1];
+      localSummary.textContent = first && last
+        ? `${plan.sends.length} time zones · first ${first.at.toLocaleString()} (${offsetLabel(first.offsetMin)}), last ${last.at.toLocaleString()} (${offsetLabel(last.offsetMin)})${plan.skipped.length ? ` · ${plan.skipped.length} skipped` : ""}`
+        : "No time zone left: pick a later date.";
+    }
     const v = vars();
     preview.update({
       appName: app.name,
@@ -332,7 +359,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     fUrl.setError(validateLink(url.value, app.url_allowlist) ?? undefined);
     fImage.setError(validateImage(image.value) ?? undefined);
   };
-  const watched: HTMLElement[] = [title, body, url, image, targetSel, targetValue, modeNow, modeLater, modeAll, modeAny, ...audienceChecks.map((c) => c.box)];
+  const watched: HTMLElement[] = [title, body, url, image, targetSel, targetValue, modeNow, modeLater, modeLocal, localDate, localClock, policySel, modeAll, modeAny, ...audienceChecks.map((c) => c.box)];
   for (const el of watched) {
     el.addEventListener("input", refresh);
     el.addEventListener("change", refresh);
@@ -388,12 +415,72 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     draftId = null;
   };
 
+  // ---- local-time sends: one scheduled send per UTC offset
+  const baseTarget = (): BaseTarget | null => {
+    switch (targetSel.value) {
+      case "default": return { type: "topic", value: app.default_topic, isDefault: true };
+      case "audience": {
+        const t = audienceTarget();
+        return t ? { type: t.type === "condition" ? "condition" : "topic", value: t.value, isDefault: false } : null;
+      }
+      case "topic": {
+        const v = targetValue.value.trim();
+        return v ? { type: "topic", value: v, isDefault: false } : null;
+      }
+      default: return null;
+    }
+  };
+
+  const sendLocal = async (p: ComposePayload, errors: FieldErrors): Promise<void> => {
+    if (targetSel.value === "token" || targetSel.value === "condition") {
+      fTargetValue.setError("Local-time sends work with All users, an Audience, or a custom topic.");
+      toast("Choose All users, an Audience or a custom topic for a local-time send.", "error");
+      return;
+    }
+    const base = baseTarget();
+    const audienceBad = targetSel.value === "audience" && (selectedNames().length === 0 || selectedNames().length > MAX_TOPICS_IN_CONDITION - 1);
+    if (!optionsValid() || hasErrors(errors) || audienceBad || !base) {
+      if (audienceBad) fAudience.setError(`Pick between 1 and ${MAX_TOPICS_IN_CONDITION - 1} audiences (local time uses one topic too).`);
+      toast("Fix the highlighted fields first.", "error");
+      return;
+    }
+    const plan = planLocalSends(localDate.value, localClock.value, policySel.value as PastPolicy);
+    fLocalDate.setError(plan.sends.length === 0 ? "Every time zone has already passed this time. Pick a later date, or choose “Send it the next day”." : undefined);
+    if (plan.sends.length === 0) return;
+    const items = plan.sends.map((send) => ({ send, target: targetForOffset(base, send.offsetMin) }));
+    const ready = items.flatMap((i) => (i.target ? [{ send: i.send, target: i.target }] : []));
+    if (ready.length !== items.length) {
+      fAudience.setError("Too many audiences for a local-time send (FCM allows 5 topics in total).");
+      toast("Too many audiences selected.", "error");
+      return;
+    }
+    const first = ready[0]!.send;
+    const last = ready[ready.length - 1]!.send;
+    const ok = await confirmModal({
+      title: "Schedule local-time send?",
+      message: summary(
+        p,
+        `${localClock.value} on each device · ${ready.length} time zones · ${first.at.toLocaleString()} to ${last.at.toLocaleString()}${plan.skipped.length ? ` · ${plan.skipped.length} skipped (already passed)` : ""}`,
+      ),
+      confirmLabel: "Schedule",
+    });
+    if (!ok) return;
+    const count = await scheduleLocalTime({ base: p, localTime: localClock.value, plan: ready }, ctx.email);
+    result.show({ notification_id: "", ok: true, status: "scheduled" }, `Scheduled for ${localClock.value} local time in ${count} time zones.`);
+    toast("Local-time send scheduled.", "success");
+    await afterSent();
+  };
+
   // ---- actions
   sendBtn.addEventListener("click", () => void run(async () => {
     result.hide();
     const p = payload();
     const errors = validate(p);
     showErrors(errors, true);
+    if (isLocal()) {
+      await sendLocal(p, errors);
+      return;
+    }
     let whenDate: Date | null = null;
     if (isLater()) {
       whenDate = when.value ? new Date(when.value) : null;
@@ -537,8 +624,10 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
       h("legend", {}, "When"),
       h("label", { class: "radio" }, modeNow, " Send now"),
       h("label", { class: "radio" }, modeLater, " Schedule"),
+      h("label", { class: "radio" }, modeLocal, " Device local time"),
     ),
     fWhen.wrap,
+    localBox,
     h("div", { class: "row" }, sendBtn, draftBtn, tplBtn, resetBtn),
     result.el,
     h("hr", {}),

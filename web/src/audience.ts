@@ -49,6 +49,7 @@ import androidx.core.content.pm.PackageInfoCompat
 import com.google.firebase.messaging.FirebaseMessaging
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.math.abs
 
 /** Keeps this device subscribed to the audience topics used by the Push Admin panel. */
 object PushTopics {
@@ -66,6 +67,11 @@ object PushTopics {
         swap(context, "version", "v_$version")
         if (country.isNotEmpty()) swap(context, "country", "country_$country")
         swap(context, "timezone", "tz_$zone")
+
+        // UTC offset topic, used for "send at 9:00 AM device local time"
+        val offsetMin = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60000
+        val sign = if (offsetMin < 0) "m" else "p"
+        swap(context, "offset", "utc_" + sign + "%02d%02d".format(abs(offsetMin) / 60, abs(offsetMin) % 60))
     }
 
     /** Subscribes to [topic]; leaves the topic previously stored for [slot] if it changed. */

@@ -39,6 +39,10 @@ export interface NotificationRec {
   collapse_key: string | null;
   priority: "high" | "normal";
   analytics_label: string | null;
+  kind: "single" | "local_parent" | "local_child";
+  parent_id: string | null;
+  local_offset_min: number | null;
+  local_time: string | null;
   created_at: string;
 }
 

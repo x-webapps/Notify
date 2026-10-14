@@ -70,3 +70,13 @@ input[type="checkbox"] { accent-color: #7c3aed; width: 15px; height: 15px; }
 .options[open] summary { border-bottom: 1px solid var(--border); }
 .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; padding: 0.9rem; }
 @media (max-width: 640px) { .options-grid { grid-template-columns: 1fr; } }
+
+/* ---------- local-time sends */
+.local-box { margin: 0 0 1.1rem; }
+.local-box .options-grid { padding-bottom: 0; }
+.local-rest { padding: 0 0.9rem 0.9rem; }
+.zones { max-height: 60vh; overflow: auto; }
+input[type="date"], input[type="time"] {
+  width: 100%; padding: 0.62rem 0.8rem; border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
+  background: var(--surface); color: var(--text); font: inherit;
+}
