@@ -1,46 +1,61 @@
 # Push Admin: a minimal push-notification panel for your Android apps
 
-A small OneSignal-style admin panel for **your own** Android apps. Pick an app, write a notification
-(title, message, optional link and image), and send it to all users, a topic, a topic condition, or a
-single device. Everything runs on **free tiers**.
+A small OneSignal-style admin panel for **your own** Android apps. Pick an app, write a notification and
+send it to everyone, to an audience (app version, country, time zone), to one device, now, later, or at a
+local time on every device. Everything runs on **free tiers**.
 
 ```
 Admin panel (static SPA on GitHub Pages, deployed by GitHub Actions)
         |  Supabase JS client (Google login, anon key only)
         v
-Supabase Auth + Postgres (RLS) + Edge Functions (Deno)
+Supabase Auth + Postgres (RLS) + Storage + Edge Functions (Deno) + pg_cron
                                       |
                                       v
                     FCM HTTP v1 (service account kept in Supabase secrets)
 ```
 
-* **Firebase** is used only for FCM delivery inside your apps.
+* **Firebase** is used only for FCM delivery inside your apps (and, optionally, its delivery-stats API).
 * The repo is **public**, so it contains **no secrets**.
-* Android side: see [ANDROID_SETUP.md](ANDROID_SETUP.md) (and your `Guideline_Notification.md`).
+* Android side: [ANDROID_SETUP.md](ANDROID_SETUP.md) and [Guideline_Notification.md](Guideline_Notification.md).
+  The panel's **Settings → Android integration guide** has a copy-paste brief for an AI coding agent.
+
+## Features
+
+| Area | What you get |
+|---|---|
+| Apps | Name, package, FCM project, icon URL, App URL (auto-detected Play Store link), channel, default topic, optional own service-account secret, link-domain allow-list |
+| Compose | Title/message with counters, link, image (paste a URL or upload to Storage), live Android preview, emoji picker, `{app_name}` `{date}` `{time}` `{day}` variables, truncation hints |
+| Targets | All users, **Audience** (saved topics combined with AND/OR), custom topic, advanced condition, single device token |
+| Timing | Send now, schedule a date/time, or **device local time** (for example 9:00 AM on each phone) |
+| Delivery options | Expiry (TTL), replace key (collapse key and tag), priority, campaign label. Every send is tagged with an FCM analytics label (`push_YYYYMMDD` by default) |
+| Workflow | Drafts, templates, duplicate/resend, cancel scheduled, history with search and pagination |
+| Insight | Dashboard: sent in the last 7 days, success rate, scheduled, 7-day chart, recent activity |
+| Admin | Google login with an admin allow-list, theme (light default), apps export/import, Android guide for other apps |
 
 ## Repo layout
 
 | Path | What |
 |---|---|
 | `web/` | Vite + vanilla TypeScript panel (only dependency: `@supabase/supabase-js`) |
-| `supabase/migrations/` | Tables, RLS, claim functions, `pg_cron`/`pg_net` extensions |
+| `web/src/android-guide.md` | The agent-ready Android brief shown in Settings (its PushTopics code comes from `audience.ts`) |
+| `supabase/migrations/` | Tables, RLS, claim functions, drafts, audiences, delivery options, local-time sends, image bucket |
 | `supabase/functions/send-notification` | Sends now (called by the panel) |
 | `supabase/functions/process-scheduled` | Sends due scheduled notifications (called by `pg_cron`) |
-| `supabase/functions/_shared/` | FCM, admin check, validation, delivery, tests |
-| `supabase/manual/` | SQL you run by hand once (admin seed, cron job). Contains placeholders only |
+| `supabase/functions/_shared/` | FCM, admin check, validation, variables, delivery, tests |
+| `supabase/manual/` | SQL you run by hand once (admin seed, cron job). Placeholders only; keep filled copies as `*.local.sql` (git-ignored) |
 | `.github/workflows/` | `deploy.yml` (tests + GitHub Pages), `keepalive.yml` (daily ping) |
 
 ---
 
 ## Setup, step by step
 
-Windows is assumed; use **Git Bash** for the commands that contain `$(...)`.
+Windows is assumed; use **Git Bash** for commands that contain `$(...)`.
 
 ### 1. Supabase project
 1. Create a project at supabase.com (free plan).
-2. **Settings → API**: copy the **Project URL** and the **anon** key (the legacy JWT one, starting with `eyJ`; the cron job needs it).
-   Never copy or use the `service_role` key anywhere except Supabase itself.
-3. **Authentication → Providers → Email**: turn **off** “Enable email signups” (and leave email login off). Only Google is used.
+2. **Settings → API Keys**: copy the **Project URL** and the legacy **anon** key (`eyJ…`; the cron job needs it).
+   Never use the `service_role` / `sb_secret_…` key anywhere outside Supabase, and never paste it in chats.
+3. **Authentication → Providers → Email**: turn **off** email signups. Only Google is used.
 
 ### 2. Google login
 1. Google Cloud Console → *APIs & Services → Credentials → Create credentials → OAuth client ID → Web application*.
@@ -49,35 +64,32 @@ Windows is assumed; use **Git Bash** for the commands that contain `$(...)`.
 
 ### 3. Database
 ```bash
-npm install --prefix web          # also gives you npx
+npm install --prefix web
 npx supabase login
 npx supabase link --project-ref <your-project-ref>
-npx supabase db push              # runs supabase/migrations/*
+npx supabase db push              # applies every file in supabase/migrations/
 ```
 Then, in the Supabase **SQL editor**, run [`supabase/manual/seed_admin.sql`](supabase/manual/seed_admin.sql)
-after replacing the email with your Google account (lowercase). Only emails in `admins` get access.
+with your Google account email (lowercase). Only emails in `admins` get access.
+The migrations also create the **Storage bucket** for uploaded images.
 
 ### 4. FCM service account and secrets
-**Central key (recommended):** one service account that has the role **Firebase Cloud Messaging Admin**
-in *every* app's Firebase project.
+One service account can serve every app if it has the role **Firebase Cloud Messaging Admin** in *every*
+app's Firebase project.
 
 1. Firebase console → *Project settings → Service accounts → Generate new private key*. Save the JSON
-   **outside this folder** (e.g. `C:/Users/<you>/Documents/key.json`).
-2. For **each** app's Firebase project: Google Cloud Console → *IAM → Grant access* → paste the service account
-   email → role **Firebase Cloud Messaging Admin**. Also make sure **Firebase Cloud Messaging API (V1)** is enabled there
-   (*APIs & Services → Library*).
+   **outside this folder**.
+2. In each app's Firebase project: Google Cloud Console → *IAM → Grant access* → the service account email →
+   **Firebase Cloud Messaging Admin**, and enable **Firebase Cloud Messaging API (V1)** (*APIs & Services → Library*).
 3. Set the secrets (Git Bash):
 ```bash
 npx supabase secrets set FCM_SERVICE_ACCOUNT="$(cat C:/Users/<you>/Documents/key.json)"
 npx supabase secrets set CRON_SECRET="<long random string, 32+ chars>"
 npx supabase secrets set ALLOWED_ORIGINS="https://<user>.github.io,http://localhost:5173"
 ```
-(You can also paste the JSON into the dashboard: *Edge Functions → Secrets*.)
-
-**Per-app key (optional):** set a secret named `FCM_SERVICE_ACCOUNT_<APP_KEY>` (e.g. `FCM_SERVICE_ACCOUNT_GLASSWIDGETS`)
-and put that **name** (not the key) into the app's “own service-account secret name” field. Names must start with
-`FCM_SERVICE_ACCOUNT_`; the function refuses to read any other environment variable. Without an override the
-central key is used.
+**Per-app key (optional):** set a secret named `FCM_SERVICE_ACCOUNT_<APP_KEY>` and enter that **name** (not
+the key) in the app's settings. Names must start with `FCM_SERVICE_ACCOUNT_`; the function refuses to read any
+other environment variable. Without an override the central key is used.
 
 > If key creation is blocked by the organization policy `iam.disableServiceAccountKeyCreation`, an organization
 > admin has to relax it for the project, or you create the key in a project outside that organization.
@@ -87,77 +99,120 @@ central key is used.
 npx supabase functions deploy send-notification
 npx supabase functions deploy process-scheduled
 ```
-JWT verification stays **on** for both (do not pass `--no-verify-jwt`).
+JWT verification stays **on** for both (never pass `--no-verify-jwt`). Redeploy after any change in
+`supabase/functions/`.
 
-### 6. Scheduler (`pg_cron`)
-Open [`supabase/manual/cron.sql`](supabase/manual/cron.sql), replace the three placeholders (project URL, anon key and the
-same `CRON_SECRET` you set above), and run it in the SQL editor. It stores them in Supabase Vault and schedules a
-job that runs every minute and calls `process-scheduled` **only when something is due**.
-Do not commit a filled-in copy.
+### 6. Scheduler (`pg_cron`): required for Schedule and Device local time
+Copy [`supabase/manual/cron.sql`](supabase/manual/cron.sql) to `supabase/manual/cron.local.sql`, replace the three
+placeholders (project URL, anon key, and the **same** `CRON_SECRET` as above) and run it once, either by pasting
+it in the SQL editor or with:
+```bash
+npx supabase db query --linked -f supabase/manual/cron.local.sql
+```
+It stores the values in Supabase Vault and schedules a job that runs every minute and calls `process-scheduled`
+**only when something is due**. Never commit the `.local.sql` file.
 
-Check it: `select * from cron.job;` and `select * from cron.job_run_details order by start_time desc limit 5;`
+Check it: `select jobname, active from cron.job;` and
+`select * from cron.job_run_details order by start_time desc limit 5;`
+If you change the job text in `cron.sql`, re-run only its `select cron.schedule(...)` block (same job name
+replaces the old one; do not run the `vault.create_secret` lines twice).
 
 ### 7. GitHub repo and Pages
-1. Create a **public** repo and enable **2FA** on your GitHub account.
-2. Run `git status` and confirm no `.json` key or `.env` file is listed.
+1. Create a **public** repo (Pages on the free plan needs public) and enable **2FA** on your GitHub account.
+2. Run `git status` and confirm no `.json` key, `.env` or `*.local.sql` file is listed.
 3. Push to `main`.
 4. Repo → **Settings → Pages → Source: GitHub Actions**.
-5. Repo → **Settings → Secrets and variables → Actions → Variables**:
-   `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
-   (the keep-alive workflow reuses these, or you can add `SUPABASE_URL` / `SUPABASE_ANON_KEY`).
+5. Repo → **Settings → Secrets and variables → Actions → Variables** (repository variables):
+   `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (the keep-alive workflow reuses them).
 6. Supabase → **Authentication → URL Configuration**:
    * Site URL: `https://<user>.github.io/<repo>/`
    * Redirect URLs: `https://<user>.github.io/<repo>/` (keep the trailing slash) and `http://localhost:5173/`
-7. The push triggers **Deploy admin panel to GitHub Pages** (Actions tab). Open the site when it is green.
+7. The push triggers **Deploy admin panel to GitHub Pages**. Every later push to `main` redeploys automatically
+   (tests run first; a failing test blocks the deploy).
 
-### 8. Local development (optional)
+### 8. Your Android apps
+Follow [ANDROID_SETUP.md](ANDROID_SETUP.md), or open **Settings → Android integration guide** in the panel,
+copy it, and paste it into an AI coding agent inside the app's project. In short: `google-services.json`,
+`firebase-messaging`, notification channel, link handler, and `PushTopics.sync(this)` at startup.
+Audiences and local-time sends only reach users on an app version that includes `PushTopics`.
+
+### 9. Local development (optional)
 ```bash
 cd web
 copy .env.example .env     # fill in URL + anon key
 npm run dev                # http://localhost:5173
-npm test
+npm test                   # web tests
 ```
+Function tests (needs Deno): `cd supabase/functions && deno test --no-lock _shared/`
 
 ---
 
+## Using the panel
+
+* **Dashboard**: 7-day stats and recent activity. **Apps**: your apps; open one to compose.
+* **Audience tab** (per app): save audiences such as *Country: IN* or *Version 42*. In the composer choose
+  **Target → Audience**, tick several and choose *Match all* (AND) or *Match any* (OR). FCM allows at most
+  5 topics per condition. The tab also shows the Android code the devices need.
+* **Device local time**: pick a date and a wall-clock time. The panel creates one scheduled send per UTC offset
+  (up to 38), each at that time in its zone, and shows them as one row in History (*View zones* lists each).
+  If that time has already passed in some zones you choose to skip them or send them the next day.
+  Supports All users, Audience or a custom topic. A phone's offset is refreshed when the app starts, so a phone
+  that crossed a daylight-saving change without being opened may be an hour off. `{date}` and `{day}` use your
+  browser's time zone, so avoid `{time}` in local-time sends.
+* **Delivery options**: expiry drops the message if the phone stays offline too long; a replace key lets a newer
+  message replace the older one; normal priority saves battery; the campaign label groups FCM delivery stats.
+* **Drafts and templates**: *Save draft* keeps unfinished work (removed once sent); templates can use variables.
+* **Images**: paste an https URL or upload a JPG/PNG/WebP under 1 MB (stored in Supabase Storage, 1 GB free).
+
 ## Test checklist
-1. Sign in with Google. A non-listed account must see “Not authorized” and be signed out.
+1. Sign in with Google. A non-listed account must see "Not authorized" and be signed out.
 2. Add an app (name, package, FCM project ID).
-3. Compose → paste a device token (Logcat) → **Send test to token**.
-4. Send to **All users** (topic `all`); confirm the modal summary; check foreground, background and killed states.
-5. Tap the notification: the link opens.
-6. Link `javascript:alert(1)` must be rejected (inline error; the server rejects it too).
-7. **Schedule** one two minutes ahead; History shows *Scheduled*, then *Sent*. Schedule another and **Cancel** it.
-8. Save a template, reuse it, edit it, delete it.
-9. Settings: export apps JSON (open it: no secrets), import it back, toggle theme, sign out.
+3. Compose, paste a device token, **Send test to token**.
+4. Send to **All users** (confirm the modal). Check foreground, background and killed; tap opens the link.
+5. Link `javascript:alert(1)` must be rejected (inline error; the server rejects it too).
+6. **Schedule** one two minutes ahead; History shows *Scheduled*, then *Sent*. Schedule another and **Cancel** it.
+7. Send twice with the same **replace key**: the second replaces the first on the phone.
+8. Audience: save *Country: <yours>*, send to it, confirm only matching devices receive it.
+9. **Device local time**: set a time a few minutes ahead for All users; open *View zones* in History.
+10. Save a draft, reuse a template, upload an image, export and re-import the apps JSON (no secrets inside).
 
 ## Security notes
-* **Never commit:** the service account JSON, the Supabase `service_role` key, the Google OAuth client secret,
-  your filled-in `cron.sql`, `.env` files. `.gitignore` covers the usual names, but check `git status` every time.
+* **Never commit:** the service account JSON, the Supabase `service_role` / `sb_secret_…` key, the Google OAuth
+  client secret, `*.local.sql` files, `.env` files. `.gitignore` covers the usual names; check `git status` every time.
 * The browser only ever has the **anon key**. Every table has RLS that requires a verified email listed in `admins`.
-* Both functions verify the caller's JWT and re-check `admins` on the server, re-validate the link/image/target,
-  and only read secrets named `FCM_SERVICE_ACCOUNT*`. Responses never contain secrets or access tokens.
-* GitHub Pages cannot set HTTP headers, so the CSP is a `<meta>` tag in the production build (allows only this origin,
-  the Supabase project URL and https images for the preview). A meta CSP **cannot** enforce `frame-ancestors`, so
-  the page could be framed by another site (clickjacking). Every action still needs your signed-in session and a
-  confirmation click, which limits the risk, but it is a known gap of static hosting. `noindex` meta and `robots.txt`
-  are included.
+  Storage uploads are admin-only (public read, so phones can fetch the image).
+* Both functions verify the caller's JWT and re-check `admins` on the server, re-validate link, image, target and
+  delivery options, and only read secrets named `FCM_SERVICE_ACCOUNT*`. The scheduler endpoint also requires the
+  private `x-cron-secret`. Responses never contain secrets or access tokens.
+* GitHub Pages cannot set HTTP headers, so the CSP is a `<meta>` tag in the production build. A meta CSP
+  **cannot** enforce `frame-ancestors`, so the page could be framed by another site (clickjacking). Every action
+  still needs your signed-in session and a confirmation click, which limits the risk. `noindex` and `robots.txt` are included.
 * Anyone you add to `admins` can message every user of every app. Keep Google and GitHub accounts on 2FA.
+* If a secret was ever pasted into a chat or committed, rotate it.
+
+## Delivery report (optional, Firebase)
+FCM's Data API (`fcmdata.googleapis.com`) can report delivery counts per day and analytics label for Android apps.
+It needs the API enabled in the app's Firebase project and a role that includes `fcmdata.deliverydata.list`
+for the service account. Data appears several days late and only a 7-day window is returned, so history would need
+daily snapshots. The panel does not show this report yet.
 
 ## Keeping the free project alive
-Free Supabase projects pause after about a week of inactivity. The `pg_cron` job (every minute) normally keeps the
-database active, and `keepalive.yml` makes one request per day as a backup. If the project is paused anyway:
-Supabase dashboard → your project → **Restore project**, then wait a minute. GitHub disables scheduled workflows after 60 days
-without repository activity; re-enable it in the Actions tab if needed.
+Free Supabase projects pause after about a week of inactivity. The `pg_cron` job normally keeps the database
+active and `keepalive.yml` makes one request per day as a backup. If the project is paused anyway:
+Supabase dashboard → your project → **Restore project**. GitHub disables scheduled workflows after 60 days
+without repository activity; re-enable it in the Actions tab if that happens.
 
 ## Troubleshooting
 | Problem | Check |
 |---|---|
 | Login loops or fails | Supabase Site URL / Redirect URLs (trailing slash), Google redirect URI |
-| “Not authorized” | Email missing in `admins` (lowercase), or Google email not verified |
+| "Not authorized" | Email missing in `admins` (lowercase), or Google email not verified |
 | Blank page | Actions build log; repo Variables set; Pages source is *GitHub Actions* |
 | Send fails with 403 | Service account lacks *Firebase Cloud Messaging Admin* in that project, or FCM V1 API is off |
 | `SENDER_ID_MISMATCH` | Token comes from another Firebase project than the app's FCM project ID |
-| Sent but nothing arrives | App not subscribed to the topic, notification permission off, wrong project ID |
+| "Sent" but nothing arrives | App not subscribed (`PushTopics.sync` missing), notification permission off, wrong project ID. New subscriptions can take a few minutes |
+| Audience / local-time send reaches nobody | The device runs an app version without `PushTopics`; topic names must match exactly (`country_IN`, `v_42`, `utc_p0530`) |
 | CORS error in the browser | `ALLOWED_ORIGINS` secret must contain the exact Pages origin (no path) |
-| Scheduled item stays *Scheduled* | `select * from cron.job_run_details`, `net._http_response`; `CRON_SECRET` mismatch; anon key must be the legacy JWT |
+| Scheduled item stays *Scheduled* | `select * from cron.job;` must show the job; check `cron.job_run_details`, `net._http_response`, `CRON_SECRET` match, anon key is the legacy JWT |
+| Add app / save fails after an update | A migration is missing: run `npx supabase db push` |
+| Image upload fails | Bucket missing (run `db push`), file over 1 MB, or not JPG/PNG/WebP |

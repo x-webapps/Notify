@@ -111,3 +111,49 @@ Supabase Auth  +  Supabase Postgres (RLS)  +  Edge Functions (Deno)
 - After building, run the build and tests, and clearly list what you could NOT verify (e.g. live FCM send, cron execution, Google login).
 
 Before writing code, briefly confirm the plan and flag any constraint you think cannot work on the free tiers.
+
+---
+
+## Addendum: features added after the first version
+Everything above is the original brief. The project now also contains the following; include it when rebuilding.
+The current behaviour is documented in `README.md`, `ANDROID_SETUP.md` and `Guideline_Notification.md`.
+
+**Look and navigation**
+- Light theme is the default (white, minimal, indigo to violet to fuchsia gradient accent); dark theme stays in Settings.
+- Pages: Dashboard (7-day stats, success rate, scheduled count, chart, recent activity), Apps, per-app tabs
+  Compose / History / Drafts & templates / Audience / App settings, and Settings.
+
+**Apps**
+- Extra fields: `icon_url` (https), `app_url` (auto-detected Play Store link from the package name when empty).
+
+**Composer**
+- Drafts (own table, removed after sending), template variables `{app_name}` `{date}` `{time}` `{day}` filled in by the
+  server at send time using the notification's time zone, emoji picker, truncation hints (about 40 / 100 characters),
+  image upload to a public Supabase Storage bucket (admin-only write, 1 MB, JPG/PNG/WebP).
+- Delivery options: expiry (TTL, max 28 days), replace key (FCM collapse key and notification tag), priority
+  (high/normal), campaign label. Every send gets an FCM `analytics_label` (default `push_YYYYMMDD`), stored on the row.
+
+**Audiences without a device table**
+- Devices subscribe to topics: `all`, `v_<versionCode>`, `country_<ISO>`, `tz_<Zone_Name>`, `utc_<p|m>HHMM`
+  (no language topic). The Audience tab saves them per app; the composer builds an FCM condition with AND/OR
+  (at most 5 topics per condition). The Android helper `PushTopics.sync(context)` keeps subscriptions in step and
+  unsubscribes the previous version/country/time-zone/offset topic.
+
+**Device-local-time sends**
+- One scheduled child row per UTC offset (about 38) plus a parent row shown in History (`kind`: single, local_parent,
+  local_child; `parent_id`; a trigger keeps the parent status in step). The scheduler must never claim a parent.
+  If the local time already passed in a zone: skip it or send the next day. Targets: All users, Audience or custom topic.
+
+**Settings**
+- Export/import apps JSON, theme, sign out, and an **Android integration guide**: a complete copy-paste brief for an
+  AI coding agent to add compatible push notifications to any other Android app (kept in `web/src/android-guide.md`).
+
+**Lessons learned (avoid these mistakes)**
+- Postgres regexes reject `[0-9-_]` ranges (put `-` last) and repetition counts above 255.
+- Use Supabase Auth PKCE with hash routing so the OAuth redirect does not clash with the `#` router.
+- Keep `verify_jwt` on; the cron job sends the legacy anon JWT plus an `x-cron-secret` header. Create the cron job from a
+  git-ignored `cron.local.sql`; secrets live in Supabase Vault and function secrets only.
+- The scheduler cron condition must exclude parent rows, or it calls the function every minute for nothing.
+- A free GitHub Pages site needs a public repo, so nothing secret may ever be committed; rotate anything that was pasted in a chat.
+- FCM delivery-stats API (`fcmdata.googleapis.com`) needs its own API enabled and a role containing
+  `fcmdata.deliverydata.list`; data arrives several days late with a 7-day window.
