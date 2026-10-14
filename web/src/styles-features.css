@@ -63,3 +63,10 @@ input[type="checkbox"] { accent-color: #7c3aed; width: 15px; height: 15px; }
 @media (max-width: 860px) {
   .two-col { grid-template-columns: 1fr; }
 }
+
+/* ---------- delivery options */
+.options { margin-bottom: 1.1rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.options summary { cursor: pointer; padding: 0.65rem 0.9rem; font-weight: 650; font-size: 0.88rem; list-style-position: inside; }
+.options[open] summary { border-bottom: 1px solid var(--border); }
+.options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; padding: 0.9rem; }
+@media (max-width: 640px) { .options-grid { grid-template-columns: 1fr; } }

@@ -17,12 +17,17 @@ import { append, clear, confirmModal, field, h, showModal, toast } from "../dom"
 import type { AppRec, AudienceTopic, SendResult, TargetChoice, TargetType } from "../types";
 import {
   effectiveAppUrl,
+  DEFAULT_DELIVERY,
+  describeDelivery,
   hasErrors,
   LIMITS,
   validateFields,
   validateImage,
   validateLink,
+  TTL_PRESETS,
+  validateDelivery,
   validateSchedule,
+  type DeliveryOptions,
   type FieldErrors,
 } from "../validate";
 import { renderVariables } from "../variables";
@@ -40,6 +45,7 @@ export interface Prefill {
   url?: string | null;
   image_url?: string | null;
   choice?: TargetChoice;
+  delivery?: DeliveryOptions;
   targetValue?: string;
 }
 
@@ -138,6 +144,47 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
   );
   const fAudience = field("Audience", audienceBox);
 
+  // delivery options (expiry, priority, replace key, campaign label)
+  const d0 = prefill.delivery ?? DEFAULT_DELIVERY;
+  const ttlSel = h("select", {}, ...TTL_PRESETS.map((p) => h("option", { value: p.value === null ? "" : String(p.value) }, p.label)));
+  if (d0.ttl_seconds !== null && !TTL_PRESETS.some((p) => p.value === d0.ttl_seconds)) {
+    ttlSel.appendChild(h("option", { value: String(d0.ttl_seconds) }, `Custom (${d0.ttl_seconds}s)`));
+  }
+  ttlSel.value = d0.ttl_seconds === null ? "" : String(d0.ttl_seconds);
+  const prioSel = h("select", {}, h("option", { value: "high" }, "High (deliver immediately)"), h("option", { value: "normal" }, "Normal (saves battery)"));
+  prioSel.value = d0.priority;
+  const collapseKey = h("input", { type: "text", maxlength: 64, autocomplete: "off", spellcheck: "false", placeholder: "e.g. score-update", value: d0.collapse_key ?? "" });
+  const campaign = h("input", { type: "text", maxlength: 50, autocomplete: "off", spellcheck: "false", placeholder: "Auto: push_YYYYMMDD", value: d0.analytics_label ?? "" });
+  const fTtl = field("Expires if undelivered after", ttlSel, { hint: "Dropped if the phone stays offline longer. Good for flash offers." });
+  const fPrio = field("Priority", prioSel, { hint: "Use normal for marketing, high for urgent messages." });
+  const fCollapse = field("Replace key (optional)", collapseKey, { hint: "A newer notification with the same key replaces this one instead of stacking." });
+  const fCampaign = field("Campaign label (optional)", campaign, { hint: "Groups delivery stats in Firebase. Empty = today's automatic label." });
+  const delivery = (): DeliveryOptions => ({
+    ttl_seconds: ttlSel.value === "" ? null : Number(ttlSel.value),
+    collapse_key: collapseKey.value.trim() || null,
+    priority: prioSel.value === "normal" ? "normal" : "high",
+    analytics_label: campaign.value.trim() || null,
+  });
+  const options = h(
+    "details",
+    { class: "options" },
+    h("summary", {}, "Delivery options"),
+    h("div", { class: "options-grid" }, fTtl.wrap, fPrio.wrap, fCollapse.wrap, fCampaign.wrap),
+  );
+  if (describeDelivery(d0)) options.setAttribute("open", "");
+  /** Shows option errors (opening the section) and returns true when all are valid. */
+  const optionsValid = (): boolean => {
+    const e = validateDelivery(delivery());
+    fTtl.setError(e.ttl_seconds);
+    fCollapse.setError(e.collapse_key);
+    fCampaign.setError(e.analytics_label);
+    if (e.ttl_seconds || e.collapse_key || e.analytics_label) {
+      options.setAttribute("open", "");
+      return false;
+    }
+    return true;
+  };
+
   const modeNow = h("input", { type: "radio", name: "mode", value: "now", checked: true });
   const modeLater = h("input", { type: "radio", name: "mode", value: "later" });
   const when = h("input", { type: "datetime-local", value: toLocalInputValue(new Date(Date.now() + 3600_000)) });
@@ -234,6 +281,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
       target_type: t.type,
       target_value: t.value,
       tz,
+      ...delivery(),
     };
   };
   const vars = (): { appName: string; now: Date; tz: string } => ({ appName: app.name, now: new Date(), tz });
@@ -327,6 +375,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
       h("p", {}, `This will notify ${who}.`),
       h("dl", { class: "meta" }, h("dt", {}, "Title"), h("dd", {}, p.title), h("dt", {}, "Message"), h("dd", {}, p.body),
         p.url ? h("dt", {}, "Link") : null, p.url ? h("dd", { class: "mono" }, p.url) : null,
+        describeDelivery(p) ? h("dt", {}, "Options") : null, describeDelivery(p) ? h("dd", {}, describeDelivery(p)) : null,
         extra ? h("dt", {}, "When") : null, extra ? h("dd", {}, extra) : null),
     );
   };
@@ -353,7 +402,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
       if (err) return;
     }
     const audienceBad = targetSel.value === "audience" && (selectedNames().length === 0 || selectedNames().length > MAX_TOPICS_IN_CONDITION);
-    if (hasErrors(errors) || audienceBad) {
+    if (!optionsValid() || hasErrors(errors) || audienceBad) {
       toast("Fix the highlighted fields first.", "error");
       return;
     }
@@ -386,7 +435,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     const errors = validate(p);
     showErrors(errors, false);
     fTest.setError(errors.target_value);
-    if (hasErrors(errors)) {
+    if (!optionsValid() || hasErrors(errors)) {
       toast("Fix the highlighted fields first.", "error");
       return;
     }
@@ -412,6 +461,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
         image_url: image.value.trim() || null,
         target_choice: c,
         target_value: c === "audience" ? encodeAudience(selectedNames(), audienceMode()) : c === "default" ? "" : targetValue.value.trim(),
+        ...delivery(),
       });
       toast("Draft saved.", "success");
     } catch (e) {
@@ -458,6 +508,10 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     for (const el of [title, body, url, image, targetValue]) el.value = "";
     for (const c of audienceChecks) c.box.checked = false;
     targetSel.value = "default";
+    ttlSel.value = "";
+    prioSel.value = "high";
+    collapseKey.value = "";
+    campaign.value = "";
     modeNow.checked = true;
     result.hide();
     showErrors({}, true);
@@ -476,6 +530,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     fTarget.wrap,
     fTargetValue.wrap,
     fAudience.wrap,
+    options,
     h(
       "fieldset",
       { class: "mode" },
@@ -512,11 +567,21 @@ export const renderCompose = (id: string, query: URLSearchParams) => async (view
     } else if (fromId) {
       const n = await getNotification(fromId);
       const choice: TargetChoice = n.target_type === "topic" && n.target_value === app.default_topic ? "default" : n.target_type;
-      Object.assign(prefill, { title: n.title, body: n.body, url: n.url, image_url: n.image_url, choice, targetValue: n.target_value });
+      Object.assign(prefill, {
+        title: n.title, body: n.body, url: n.url, image_url: n.image_url, choice, targetValue: n.target_value,
+        delivery: {
+          ttl_seconds: n.ttl_seconds, collapse_key: n.collapse_key, priority: n.priority,
+          // the automatic daily label (push_YYYYMMDD) is not copied, only a label you typed yourself
+          analytics_label: n.analytics_label && !/^push_d{8}$/.test(n.analytics_label) ? n.analytics_label : null,
+        },
+      });
     } else if (draftParam) {
       const d = await getDraft(draftParam);
       draftId = d.id;
-      Object.assign(prefill, { title: d.title, body: d.body, url: d.url, image_url: d.image_url, choice: d.target_choice, targetValue: d.target_value });
+      Object.assign(prefill, {
+        title: d.title, body: d.body, url: d.url, image_url: d.image_url, choice: d.target_choice, targetValue: d.target_value,
+        delivery: { ttl_seconds: d.ttl_seconds, collapse_key: d.collapse_key, priority: d.priority, analytics_label: d.analytics_label },
+      });
     }
     clear(view);
     view.append(appTabs(app, "compose"), buildComposer(app, ctx, prefill, { topics, draftId }));

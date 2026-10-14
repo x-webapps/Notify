@@ -3,7 +3,7 @@
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
 import { buildMessage, getAccessToken, parseServiceAccount, sendFcm } from "./fcm.ts";
 import type { AppRow, DeliveryResult, NotificationRow } from "./types.ts";
-import { isValidSecretName, validateNotification } from "./validate.ts";
+import { defaultAnalyticsLabel, isValidSecretName, validateNotification } from "./validate.ts";
 import { renderVariables } from "./variables.ts";
 
 export type EnvGetter = (name: string) => string | undefined;
@@ -21,10 +21,12 @@ async function finish(
   db: SupabaseClient,
   row: NotificationRow,
   result: { ok: boolean; messageId?: string; error?: string; hint?: string },
+  analyticsLabel?: string,
 ): Promise<DeliveryResult> {
   const status = result.ok ? "sent" : "failed";
   const error = result.ok ? null : [result.error, result.hint].filter(Boolean).join(" | ").slice(0, 1000);
   await db.from("notifications").update({
+    ...(analyticsLabel ? { analytics_label: analyticsLabel } : {}),
     status,
     sent_at: result.ok ? new Date().toISOString() : null,
     fcm_message_id: result.ok ? result.messageId ?? null : null,
@@ -53,11 +55,18 @@ export async function deliver(
 
     // Variables ({date} etc.) are filled in now, so scheduled sends get the send-time values.
     const vars = { appName: app.name, now: new Date(), tz: row.tz };
-    const content = { ...row, title: renderVariables(row.title, vars), body: renderVariables(row.body, vars) };
+    // Every send is tagged for FCM delivery reports; the label used is stored on the row.
+    const analyticsLabel = row.analytics_label || defaultAnalyticsLabel(vars.now);
+    const content = {
+      ...row,
+      title: renderVariables(row.title, vars),
+      body: renderVariables(row.body, vars),
+      analytics_label: analyticsLabel,
+    };
 
     const problems = validateNotification(content, app.url_allowlist);
     if (problems.length > 0) {
-      return await finish(db, row, { ok: false, error: `Validation failed: ${problems.join(" ")}` });
+      return await finish(db, row, { ok: false, error: `Validation failed: ${problems.join(" ")}` }, analyticsLabel);
     }
 
     const json = resolveServiceAccountJson(app.secret_key, env);
@@ -72,7 +81,7 @@ export async function deliver(
     const accessToken = await getAccessToken(parseServiceAccount(json));
     const payload = buildMessage({ ...content, channel_id: app.channel_id });
     const outcome = await sendFcm(app.fcm_project_id, accessToken, payload);
-    return await finish(db, row, outcome);
+    return await finish(db, row, outcome, analyticsLabel);
   } catch (e) {
     // Messages here never contain secrets (they come from our own error strings).
     const message = e instanceof Error ? e.message : "Unexpected error";

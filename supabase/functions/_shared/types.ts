@@ -23,6 +23,10 @@ export interface NotificationRow {
   target_type: TargetType;
   target_value: string;
   tz: string;
+  ttl_seconds: number | null;
+  collapse_key: string | null;
+  priority: "high" | "normal";
+  analytics_label: string | null;
   status: NotificationStatus;
   scheduled_at: string | null;
   sent_at: string | null;

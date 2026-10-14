@@ -1,6 +1,7 @@
 import { cancelNotification, deleteNotification, getApp, listNotifications, PAGE_SIZE } from "../api";
 import { clear, confirmModal, fmtDate, h, toast } from "../dom";
 import type { NotificationRec } from "../types";
+import { describeDelivery } from "../validate";
 import { appTabs, errMsg, errorState, loading, statusBadge, targetLabel } from "./common";
 
 export const renderHistory = (id: string) => async (view: HTMLElement): Promise<void> => {
@@ -67,6 +68,7 @@ export const renderHistory = (id: string) => async (view: HTMLElement): Promise<
       {},
       h("td", { "data-label": "Status" }, statusBadge(n.status)),
       h("td", { "data-label": "Notification" }, h("strong", {}, n.title), h("div", { class: "muted clamp" }, n.body),
+        describeDelivery(n) ? h("div", { class: "muted small" }, describeDelivery(n)) : null,
         n.error ? h("div", { class: "row-error" }, n.error) : null),
       h("td", { "data-label": "Target", class: "mono" }, targetLabel(n.target_type, n.target_value)),
       h("td", { "data-label": "Time" }, when),

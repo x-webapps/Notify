@@ -35,6 +35,10 @@ export interface NotificationRec {
   fcm_message_id: string | null;
   error: string | null;
   created_by: string | null;
+  ttl_seconds: number | null;
+  collapse_key: string | null;
+  priority: "high" | "normal";
+  analytics_label: string | null;
   created_at: string;
 }
 
@@ -71,6 +75,10 @@ export interface DraftRec {
   image_url: string | null;
   target_choice: TargetChoice;
   target_value: string;
+  ttl_seconds: number | null;
+  collapse_key: string | null;
+  priority: "high" | "normal";
+  analytics_label: string | null;
   updated_at: string;
 }
 

@@ -12,7 +12,18 @@ export interface NotificationInput {
   image_url?: string | null;
   target_type: TargetType;
   target_value: string;
+  /** Drop the message if the device is offline longer than this (null = FCM default, 4 weeks). */
+  ttl_seconds?: number | null;
+  /** Newer messages with the same key replace older ones. */
+  collapse_key?: string | null;
+  priority?: "high" | "normal";
+  analytics_label?: string | null;
 }
+
+export const MAX_TTL_SECONDS = 2_419_200; // 28 days, the FCM maximum
+
+const KEY_RE = /^[a-zA-Z0-9_.~%-]{1,64}$/;
+const LABEL_RE = /^[a-zA-Z0-9_.~%-]{1,50}$/;
 
 const HTTP_RE = /^https?:\/\//i;
 const HTTPS_RE = /^https:\/\//i;
@@ -102,7 +113,31 @@ export function validateNotification(
   if (image) errors.push(image);
   const target = validateTarget(input.target_type, input.target_value ?? "");
   if (target) errors.push(target);
+  errors.push(...validateDelivery(input));
   return errors;
+}
+
+export function validateDelivery(
+  o: Pick<NotificationInput, "ttl_seconds" | "collapse_key" | "priority" | "analytics_label">,
+): string[] {
+  const errors: string[] = [];
+  const ttl = o.ttl_seconds;
+  if (ttl != null && (!Number.isInteger(ttl) || ttl < 0 || ttl > MAX_TTL_SECONDS)) {
+    errors.push("Expiry must be between 0 seconds and 28 days.");
+  }
+  if (o.collapse_key && !KEY_RE.test(o.collapse_key)) {
+    errors.push("Replace key may only contain letters, numbers and -_.~% (max 64).");
+  }
+  if (o.priority != null && o.priority !== "high" && o.priority !== "normal") errors.push("Priority must be high or normal.");
+  if (o.analytics_label && !LABEL_RE.test(o.analytics_label)) {
+    errors.push("Campaign label may only contain letters, numbers and -_.~% (max 50).");
+  }
+  return errors;
+}
+
+/** Default FCM analytics label when none is set: one label per day, e.g. push_20261014. */
+export function defaultAnalyticsLabel(now: Date): string {
+  return `push_${now.toISOString().slice(0, 10).replaceAll("-", "")}`;
 }
 
 /** Per-app secret names must be FCM_SERVICE_ACCOUNT_*, so apps can never read other env vars. */

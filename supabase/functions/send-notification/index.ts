@@ -68,6 +68,10 @@ Deno.serve(async (req) => {
         image_url: payload.image_url ? String(payload.image_url) : null,
         target_type: payload.target_type as TargetType,
         target_value: String(payload.target_value ?? ""),
+        ttl_seconds: payload.ttl_seconds == null ? null : Number(payload.ttl_seconds),
+        collapse_key: payload.collapse_key ? String(payload.collapse_key).trim() : null,
+        priority: payload.priority === "normal" ? "normal" : "high",
+        analytics_label: payload.analytics_label ? String(payload.analytics_label).trim() : null,
       };
       const problems = validateNotification(input, app.url_allowlist);
       if (problems.length > 0) return json(req, { error: problems.join(" "), problems }, 400);
@@ -81,6 +85,10 @@ Deno.serve(async (req) => {
         target_type: input.target_type,
         target_value: input.target_value.trim(),
         tz: safeTimeZone(payload.tz),
+        ttl_seconds: input.ttl_seconds,
+        collapse_key: input.collapse_key,
+        priority: input.priority,
+        analytics_label: input.analytics_label,
         status: "sending",
         claimed_at: new Date().toISOString(),
         created_by: adminEmail,

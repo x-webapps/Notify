@@ -90,6 +90,10 @@ export interface MessageInput {
   target_type: TargetType;
   target_value: string;
   channel_id: string;
+  ttl_seconds?: number | null;
+  collapse_key?: string | null;
+  priority?: "high" | "normal";
+  analytics_label?: string | null;
 }
 
 export interface FcmMessage {
@@ -99,7 +103,13 @@ export interface FcmMessage {
     token?: string;
     notification: { title: string; body: string; image?: string };
     data?: Record<string, string>;
-    android: { priority: "HIGH"; notification: { channel_id: string } };
+    android: {
+      priority: "HIGH" | "NORMAL";
+      ttl?: string;
+      collapse_key?: string;
+      notification: { channel_id: string; tag?: string };
+    };
+    fcm_options?: { analytics_label: string };
   };
 }
 
@@ -113,8 +123,19 @@ export function buildMessage(input: MessageInput): FcmMessage {
 
   const message: FcmMessage["message"] = {
     notification,
-    android: { priority: "HIGH", notification: { channel_id: input.channel_id } },
+    android: {
+      priority: input.priority === "normal" ? "NORMAL" : "HIGH",
+      notification: { channel_id: input.channel_id },
+    },
   };
+  if (input.ttl_seconds != null) message.android.ttl = `${input.ttl_seconds}s`;
+  const key = input.collapse_key?.trim();
+  if (key) {
+    message.android.collapse_key = key; // replaces a queued message while the device is offline
+    message.android.notification.tag = key; // replaces the one already shown in the tray
+  }
+  const label = input.analytics_label?.trim();
+  if (label) message.fcm_options = { analytics_label: label };
   const target = input.target_value.trim();
   if (input.target_type === "topic") message.topic = target;
   else if (input.target_type === "condition") message.condition = target;

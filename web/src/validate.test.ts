@@ -105,3 +105,21 @@ describe("app url auto-detect", () => {
     expect(effectiveAppUrl({ ...base, app_url: "javascript:alert(1)" })).toContain("play.google.com");
   });
 });
+
+describe("delivery options", () => {
+  it("accepts defaults and presets", async () => {
+    const { DEFAULT_DELIVERY, TTL_PRESETS, validateDelivery } = await import("./validate");
+    expect(validateDelivery(DEFAULT_DELIVERY)).toEqual({});
+    for (const p of TTL_PRESETS) expect(validateDelivery({ ...DEFAULT_DELIVERY, ttl_seconds: p.value })).toEqual({});
+  });
+
+  it("rejects bad values and describes the options", async () => {
+    const { DEFAULT_DELIVERY, validateDelivery, describeDelivery } = await import("./validate");
+    expect(validateDelivery({ ...DEFAULT_DELIVERY, ttl_seconds: -5 }).ttl_seconds).toBeDefined();
+    expect(validateDelivery({ ...DEFAULT_DELIVERY, ttl_seconds: 3_000_000 }).ttl_seconds).toBeDefined();
+    expect(validateDelivery({ ...DEFAULT_DELIVERY, collapse_key: "no spaces" }).collapse_key).toBeDefined();
+    expect(validateDelivery({ ...DEFAULT_DELIVERY, analytics_label: "x".repeat(51) }).analytics_label).toBeDefined();
+    expect(describeDelivery(DEFAULT_DELIVERY)).toBe("");
+    expect(describeDelivery({ ttl_seconds: 3600, collapse_key: "score", priority: "normal" })).toBe("expires in 1 hour · replace key score · normal priority");
+  });
+});

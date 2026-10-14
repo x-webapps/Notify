@@ -138,3 +138,58 @@ export function validateSchedule(when: Date | null, now: Date = new Date()): str
   if (when.getTime() > now.getTime() + 366 * 24 * 3600 * 1000) return "Scheduled time must be within one year.";
   return null;
 }
+
+// ---------------------------------------------------------------- delivery options
+export const MAX_TTL_SECONDS = 2_419_200; // 28 days, the FCM maximum
+const KEY_RE = /^[a-zA-Z0-9_.~%-]{1,64}$/;
+const LABEL_RE = /^[a-zA-Z0-9_.~%-]{1,50}$/;
+
+export type Priority = "high" | "normal";
+
+export interface DeliveryOptions {
+  ttl_seconds: number | null;
+  collapse_key: string | null;
+  priority: Priority;
+  analytics_label: string | null;
+}
+
+export const DEFAULT_DELIVERY: DeliveryOptions = { ttl_seconds: null, collapse_key: null, priority: "high", analytics_label: null };
+
+/** Expiry choices shown in the composer (null = FCM default, 4 weeks). */
+export const TTL_PRESETS: { label: string; value: number | null }[] = [
+  { label: "Default (4 weeks)", value: null },
+  { label: "Only if online right now", value: 0 },
+  { label: "1 hour", value: 3600 },
+  { label: "6 hours", value: 21_600 },
+  { label: "1 day", value: 86_400 },
+  { label: "3 days", value: 259_200 },
+  { label: "1 week", value: 604_800 },
+];
+
+export interface DeliveryErrors {
+  collapse_key?: string;
+  analytics_label?: string;
+  ttl_seconds?: string;
+}
+
+export function validateDelivery(o: DeliveryOptions): DeliveryErrors {
+  const e: DeliveryErrors = {};
+  const t = o.ttl_seconds;
+  if (t != null && (!Number.isInteger(t) || t < 0 || t > MAX_TTL_SECONDS)) e.ttl_seconds = "Expiry must be between 0 seconds and 28 days.";
+  if (o.collapse_key && !KEY_RE.test(o.collapse_key)) e.collapse_key = "Letters, numbers and -_.~% only (max 64).";
+  if (o.analytics_label && !LABEL_RE.test(o.analytics_label)) e.analytics_label = "Letters, numbers and -_.~% only (max 50).";
+  return e;
+}
+
+/** Short human text like "expires in 1 hour · replace key score · normal priority". */
+export function describeDelivery(o: Partial<DeliveryOptions>): string {
+  const parts: string[] = [];
+  if (o.ttl_seconds != null) {
+    const p = TTL_PRESETS.find((x) => x.value === o.ttl_seconds);
+    parts.push(o.ttl_seconds === 0 ? "only if online now" : `expires ${p ? `in ${p.label}` : `after ${o.ttl_seconds}s`}`);
+  }
+  if (o.collapse_key) parts.push(`replace key ${o.collapse_key}`);
+  if (o.priority === "normal") parts.push("normal priority");
+  if (o.analytics_label) parts.push(`label ${o.analytics_label}`);
+  return parts.join(" · ");
+}

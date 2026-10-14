@@ -102,6 +102,10 @@ export interface ComposePayload {
   target_type: TargetType;
   target_value: string;
   tz: string;
+  ttl_seconds: number | null;
+  collapse_key: string | null;
+  priority: "high" | "normal";
+  analytics_label: string | null;
 }
 
 export async function scheduleNotification(p: ComposePayload, when: Date, createdBy: string): Promise<void> {
