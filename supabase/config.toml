@@ -1,0 +1,14 @@
+# Minimal config for the Supabase CLI. Remote auth settings (Google provider,
+# disabling email signups, Site URL) are configured in the dashboard; see README.
+project_id = "push-admin"
+
+# Both functions keep JWT verification ON. process-scheduled is called by pg_cron
+# with the (public) anon key as bearer token plus a private x-cron-secret header.
+[functions.send-notification]
+verify_jwt = true
+
+[functions.process-scheduled]
+verify_jwt = true
+
+[auth.email]
+enable_signup = false

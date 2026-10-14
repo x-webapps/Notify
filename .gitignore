@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*service-account*.json
+*-firebase-adminsdk-*.json
+supabase/.temp/
+supabase/.branches/
+supabase/manual/*.local.sql
+.DS_Store

@@ -1,0 +1,31 @@
+name: Supabase keep-alive
+
+# Backup to the pg_cron job: one lightweight request a day so the free Supabase
+# project is not paused for inactivity. (GitHub disables scheduled workflows after
+# 60 days without repo activity; re-enable it in the Actions tab if that happens.)
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST endpoint
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL || vars.VITE_SUPABASE_URL || secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "SUPABASE_URL / SUPABASE_ANON_KEY are not set" >&2
+            exit 1
+          fi
+          # RLS returns an empty list for anon: a 200 response is all we need.
+          curl --fail --silent --show-error --max-time 30 \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            "$SUPABASE_URL/rest/v1/apps?select=id&limit=1" > /dev/null
+          echo "Supabase responded OK"
