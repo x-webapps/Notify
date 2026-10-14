@@ -4,6 +4,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
 import { buildMessage, getAccessToken, parseServiceAccount, sendFcm } from "./fcm.ts";
 import type { AppRow, DeliveryResult, NotificationRow } from "./types.ts";
 import { isValidSecretName, validateNotification } from "./validate.ts";
+import { renderVariables } from "./variables.ts";
 
 export type EnvGetter = (name: string) => string | undefined;
 
@@ -50,7 +51,11 @@ export async function deliver(
     ).eq("id", row.app_id).maybeSingle<AppRow>();
     if (appError || !app) return await finish(db, row, { ok: false, error: "App not found." });
 
-    const problems = validateNotification(row, app.url_allowlist);
+    // Variables ({date} etc.) are filled in now, so scheduled sends get the send-time values.
+    const vars = { appName: app.name, now: new Date(), tz: row.tz };
+    const content = { ...row, title: renderVariables(row.title, vars), body: renderVariables(row.body, vars) };
+
+    const problems = validateNotification(content, app.url_allowlist);
     if (problems.length > 0) {
       return await finish(db, row, { ok: false, error: `Validation failed: ${problems.join(" ")}` });
     }
@@ -65,7 +70,7 @@ export async function deliver(
     }
 
     const accessToken = await getAccessToken(parseServiceAccount(json));
-    const payload = buildMessage({ ...row, channel_id: app.channel_id });
+    const payload = buildMessage({ ...content, channel_id: app.channel_id });
     const outcome = await sendFcm(app.fcm_project_id, accessToken, payload);
     return await finish(db, row, outcome);
   } catch (e) {

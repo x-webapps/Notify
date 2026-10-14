@@ -1,7 +1,13 @@
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
+import { bucketByDay, lastDays } from "./stats";
 import type {
   AppInput,
+  AudienceKind,
+  AudienceTopic,
+  DashboardData,
+  DraftInput,
+  DraftRec,
   AppRec,
   NotificationRec,
   SendResult,
@@ -95,6 +101,7 @@ export interface ComposePayload {
   image_url: string | null;
   target_type: TargetType;
   target_value: string;
+  tz: string;
 }
 
 export async function scheduleNotification(p: ComposePayload, when: Date, createdBy: string): Promise<void> {
@@ -171,4 +178,97 @@ export async function updateTemplate(id: string, input: Omit<TemplateInput, "app
 export async function deleteTemplate(id: string): Promise<void> {
   const { error } = await supabase.from("templates").delete().eq("id", id);
   if (error) fail(error);
+}
+
+// ------------------------------------------------------------------ drafts
+export async function listDrafts(appId: string): Promise<DraftRec[]> {
+  const { data, error } = await supabase.from("drafts").select("*").eq("app_id", appId)
+    .order("updated_at", { ascending: false });
+  if (error) fail(error);
+  return (data ?? []) as DraftRec[];
+}
+
+export async function getDraft(id: string): Promise<DraftRec> {
+  const { data, error } = await supabase.from("drafts").select("*").eq("id", id).maybeSingle();
+  if (error) fail(error);
+  if (!data) throw new ApiError("Draft not found.");
+  return data as DraftRec;
+}
+
+/** Creates the draft, or updates it when an id is given. Returns the draft id. */
+export async function saveDraft(id: string | null, input: DraftInput): Promise<string> {
+  if (id) {
+    const { error } = await supabase.from("drafts").update({ ...input, updated_at: new Date().toISOString() }).eq("id", id);
+    if (error) fail(error);
+    return id;
+  }
+  const { data, error } = await supabase.from("drafts").insert(input).select("id").single();
+  if (error) fail(error);
+  return (data as { id: string }).id;
+}
+
+export async function deleteDraft(id: string): Promise<void> {
+  const { error } = await supabase.from("drafts").delete().eq("id", id);
+  if (error) fail(error);
+}
+
+// ------------------------------------------------------------------ audience topics
+export async function listAudience(appId: string): Promise<AudienceTopic[]> {
+  const { data, error } = await supabase.from("audience_topics").select("*").eq("app_id", appId)
+    .order("kind").order("name");
+  if (error) fail(error);
+  return (data ?? []) as AudienceTopic[];
+}
+
+export async function addAudienceTopic(input: { app_id: string; name: string; label: string; kind: AudienceKind }): Promise<void> {
+  const { error } = await supabase.from("audience_topics").insert(input);
+  if (error) fail(error);
+}
+
+export async function deleteAudienceTopic(id: string): Promise<void> {
+  const { error } = await supabase.from("audience_topics").delete().eq("id", id);
+  if (error) fail(error);
+}
+
+// ------------------------------------------------------------------ image upload
+export const IMAGE_MAX_BYTES = 1_000_000;
+const IMAGE_TYPES: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+
+export async function uploadImage(appId: string, file: File): Promise<string> {
+  const ext = IMAGE_TYPES[file.type];
+  if (!ext) throw new ApiError("Use a JPG, PNG or WebP image.");
+  if (file.size > IMAGE_MAX_BYTES) throw new ApiError("Image must be under 1 MB.");
+  const path = `${appId}/${crypto.randomUUID()}.${ext}`;
+  const { error } = await supabase.storage.from("notification-images").upload(path, file, {
+    contentType: file.type,
+    cacheControl: "31536000",
+    upsert: false,
+  });
+  if (error) fail(error);
+  return supabase.storage.from("notification-images").getPublicUrl(path).data.publicUrl;
+}
+
+// ------------------------------------------------------------------ dashboard
+export async function loadDashboard(): Promise<DashboardData> {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - 6);
+  const [apps, recent, week, scheduled] = await Promise.all([
+    listApps(),
+    supabase.from("notifications").select("*").order("created_at", { ascending: false }).limit(8),
+    supabase.from("notifications").select("status,created_at").in("status", ["sent", "failed"])
+      .gte("created_at", start.toISOString()).limit(5000),
+    supabase.from("notifications").select("id", { count: "exact", head: true }).eq("status", "scheduled"),
+  ]);
+  if (recent.error) fail(recent.error);
+  if (week.error) fail(week.error);
+  const days = bucketByDay((week.data ?? []) as { status: string; created_at: string }[], lastDays(7));
+  return {
+    apps,
+    days,
+    sent7: days.reduce((n, d) => n + d.sent, 0),
+    failed7: days.reduce((n, d) => n + d.failed, 0),
+    scheduled: scheduled.count ?? 0,
+    recent: (recent.data ?? []) as NotificationRec[],
+  };
 }

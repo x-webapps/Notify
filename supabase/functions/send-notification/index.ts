@@ -4,10 +4,12 @@ import { bearerToken, isAllowedAdmin, isValidCronSecret } from "../_shared/auth.
 import { deliver } from "../_shared/deliver.ts";
 import { corsHeaders, json, serviceClient } from "../_shared/http.ts";
 import type { AppRow, NotificationRow } from "../_shared/types.ts";
+import { safeTimeZone } from "../_shared/variables.ts";
 import { type NotificationInput, type TargetType, validateNotification } from "../_shared/validate.ts";
 
 interface SendPayload extends Partial<NotificationInput> {
   notification_id?: string;
+  tz?: string;
   app_id?: string;
 }
 
@@ -78,6 +80,7 @@ Deno.serve(async (req) => {
         image_url: input.image_url?.trim() || null,
         target_type: input.target_type,
         target_value: input.target_value.trim(),
+        tz: safeTimeZone(payload.tz),
         status: "sending",
         claimed_at: new Date().toISOString(),
         created_by: adminEmail,

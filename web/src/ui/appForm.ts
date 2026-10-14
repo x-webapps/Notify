@@ -56,7 +56,7 @@ export function buildForm(existing: AppRec | null): HTMLElement {
       try {
         await deleteApp(existing.id);
         toast("App deleted.", "success");
-        go("/");
+        go("/apps");
       } catch (e) {
         toast(errMsg(e), "error");
       }

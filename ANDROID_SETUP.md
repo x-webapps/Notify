@@ -20,6 +20,20 @@ FirebaseMessaging.getInstance().subscribeToTopic("all")
 ```
 Use the same name as the app's *Default topic* in the panel. For targeted sends, subscribe to extra topics (e.g. `news`, `pro`) and use a **Condition** like `'news' in topics && 'pro' in topics`.
 
+### Audience topics (version, country, language, time zone)
+To target by app version, country, language or time zone, subscribe the device to these extra topics on every launch. Firebase stores the subscriptions, so nothing is saved in your database. The panel's **Audience** tab shows the same code with a Copy button and lets you save the audiences you want to target.
+```kotlin
+val fcm = FirebaseMessaging.getInstance()
+fun topic(s: String) = s.replace(Regex("[^a-zA-Z0-9_.~%-]"), "_")
+
+fcm.subscribeToTopic("all")
+fcm.subscribeToTopic("v_" + BuildConfig.VERSION_CODE)
+fcm.subscribeToTopic("country_" + java.util.Locale.getDefault().country.uppercase())
+fcm.subscribeToTopic("lang_" + java.util.Locale.getDefault().language.lowercase())
+fcm.subscribeToTopic("tz_" + topic(java.util.TimeZone.getDefault().id))
+```
+Topic names the panel expects: `v_<versionCode>`, `country_<ISO>`, `lang_<code>`, `tz_<Zone_Name>` (for example `tz_Asia_Kolkata`). When a user updates the app, the old `v_` topic stays subscribed. That is fine for “version 42 only” sends, but add an `unsubscribeFromTopic("v_" + oldVersion)` if you want exact counts.
+
 ## 3. Channel, permission and link
 * Create a notification channel whose ID equals the app's **Channel ID** in the panel (default `app_updates_channel`), and set it as `com.google.firebase.messaging.default_notification_channel_id` in the manifest.
 * Request `POST_NOTIFICATIONS` on Android 13+.

@@ -1,5 +1,5 @@
-import { deleteTemplate, getApp, listTemplates, updateTemplate } from "../api";
-import { clear, confirmModal, field, h, showModal, toast } from "../dom";
+import { deleteDraft, deleteTemplate, getApp, listDrafts, listTemplates, updateTemplate } from "../api";
+import { clear, confirmModal, field, fmtDate, h, showModal, toast } from "../dom";
 import type { AppRec, TemplateRec } from "../types";
 import { hasErrors, LIMITS, validateFields } from "../validate";
 import { appTabs, errMsg, errorState, loading } from "./common";
@@ -14,9 +14,50 @@ export const renderTemplates = (id: string) => async (view: HTMLElement): Promis
     return;
   }
 
+  const drafts = h("div", { class: "grid" });
   const list = h("div", { class: "grid" });
   clear(view);
-  view.append(appTabs(app, "templates"), list);
+  view.append(
+    appTabs(app, "templates"),
+    h("h2", { class: "section-title" }, "Drafts"),
+    drafts,
+    h("h2", { class: "section-title" }, "Templates"),
+    list,
+  );
+
+  async function loadDrafts(): Promise<void> {
+    clear(drafts);
+    try {
+      const items = await listDrafts(id);
+      if (items.length === 0) {
+        drafts.appendChild(h("div", { class: "state" }, h("p", {}, "No drafts. Use “Save draft” in the composer to keep unfinished work.")));
+        return;
+      }
+      for (const d of items) {
+        drafts.appendChild(
+          h("article", { class: "card" },
+            h("strong", {}, d.title || "(untitled)"),
+            h("p", { class: "muted clamp" }, d.body || "No message yet"),
+            h("p", { class: "muted small" }, `Edited ${fmtDate(d.updated_at)}`),
+            h("div", { class: "row" },
+              h("a", { href: `#/apps/${id}?draft=${d.id}`, class: "btn btn-primary btn-sm" }, "Continue"),
+              h("button", { type: "button", class: "btn btn-ghost btn-sm", onclick: async () => {
+                const ok = await confirmModal({ title: "Delete draft?", message: "This draft will be removed.", confirmLabel: "Delete", danger: true });
+                if (!ok) return;
+                try {
+                  await deleteDraft(d.id);
+                } catch (e) {
+                  toast(errMsg(e), "error");
+                }
+                await loadDrafts();
+              } }, "Delete"))),
+        );
+      }
+    } catch (e) {
+      errorState(drafts, errMsg(e), () => void loadDrafts());
+    }
+  }
+  void loadDrafts();
 
   const edit = (t: TemplateRec): void => {
     const name = h("input", { type: "text", maxlength: 80, value: t.name });

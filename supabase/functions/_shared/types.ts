@@ -22,6 +22,7 @@ export interface NotificationRow {
   image_url: string | null;
   target_type: TargetType;
   target_value: string;
+  tz: string;
   status: NotificationStatus;
   scheduled_at: string | null;
   sent_at: string | null;

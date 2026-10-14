@@ -1,4 +1,5 @@
 import "./styles.css";
+import "./styles-features.css";
 import { resolveAuth, type AuthState } from "./auth";
 import { clear, h } from "./dom";
 import { icon } from "./icons";
@@ -7,6 +8,8 @@ import { configError, supabase } from "./supabase";
 import { applyStoredTheme } from "./theme";
 import { renderAppEdit, renderAppNew } from "./ui/appForm";
 import { renderApps } from "./ui/apps";
+import { renderAudience } from "./ui/audience";
+import { renderDashboard } from "./ui/dashboard";
 import { renderCompose } from "./ui/compose";
 import { errorState, type Screen } from "./ui/common";
 import { renderHistory } from "./ui/history";
@@ -24,7 +27,9 @@ let auth: AuthState = { status: "signed-out" };
 function screenFor(hash: string): Screen {
   const r = parseHash(hash);
   switch (r.name) {
+    case "dashboard": return renderDashboard;
     case "apps": return renderApps;
+    case "audience": return renderAudience(r.id);
     case "app-new": return renderAppNew;
     case "app-edit": return renderAppEdit(r.id);
     case "compose": return renderCompose(r.id, r.query);
@@ -65,7 +70,8 @@ async function render(): Promise<void> {
       h(
         "nav",
         { "aria-label": "Main" },
-        navLink("#/", "Apps", route.name !== "settings"),
+        navLink("#/", "Dashboard", route.name === "dashboard"),
+        navLink("#/apps", "Apps", route.name !== "settings" && route.name !== "dashboard"),
         navLink("#/settings", "Settings", route.name === "settings"),
       ),
       h("span", { class: "user muted" }, email),

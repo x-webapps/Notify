@@ -59,3 +59,46 @@ export interface SendResult {
   error?: string;
   hint?: string;
 }
+
+export type TargetChoice = "default" | "topic" | "condition" | "token" | "audience";
+
+export interface DraftRec {
+  id: string;
+  app_id: string;
+  title: string;
+  body: string;
+  url: string | null;
+  image_url: string | null;
+  target_choice: TargetChoice;
+  target_value: string;
+  updated_at: string;
+}
+
+export type DraftInput = Omit<DraftRec, "id" | "updated_at">;
+
+export type AudienceKind = "custom" | "version" | "country" | "language" | "timezone";
+
+export interface AudienceTopic {
+  id: string;
+  app_id: string;
+  name: string;
+  label: string;
+  kind: AudienceKind;
+  created_at: string;
+}
+
+export interface DayStat {
+  key: string;
+  label: string;
+  sent: number;
+  failed: number;
+}
+
+export interface DashboardData {
+  apps: AppRec[];
+  days: DayStat[];
+  sent7: number;
+  failed7: number;
+  scheduled: number;
+  recent: NotificationRec[];
+}
