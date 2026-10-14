@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  effectiveAppUrl,
   hasErrors,
+  playStoreUrl,
   hostAllowed,
   parseDomainList,
   validateFields,
@@ -88,5 +90,18 @@ describe("validateSchedule", () => {
     expect(validateSchedule(new Date("2026-01-01T12:00:10Z"), now)).not.toBeNull();
     expect(validateSchedule(new Date("2026-01-01T13:00:00Z"), now)).toBeNull();
     expect(validateSchedule(new Date("2028-01-01T13:00:00Z"), now)).not.toBeNull();
+  });
+});
+
+describe("app url auto-detect", () => {
+  it("builds the Play Store link from the package name", () => {
+    expect(playStoreUrl("com.jndapp.glass.widgets")).toBe("https://play.google.com/store/apps/details?id=com.jndapp.glass.widgets");
+  });
+
+  it("prefers a valid custom URL, otherwise falls back", () => {
+    const base = { package_name: "com.a.b" };
+    expect(effectiveAppUrl({ ...base, app_url: "https://example.com/app" })).toBe("https://example.com/app");
+    expect(effectiveAppUrl({ ...base, app_url: null })).toContain("id=com.a.b");
+    expect(effectiveAppUrl({ ...base, app_url: "javascript:alert(1)" })).toContain("play.google.com");
   });
 });

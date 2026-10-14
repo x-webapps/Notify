@@ -12,7 +12,7 @@ create table public.apps (
   name text not null check (char_length(name) between 1 and 80),
   package_name text not null unique check (char_length(package_name) between 1 and 200),
   fcm_project_id text not null check (fcm_project_id ~ '^[a-z][a-z0-9-]{4,29}$'),
-  default_topic text not null default 'all' check (default_topic ~ '^[a-zA-Z0-9-_.~%]{1,900}$'),
+  default_topic text not null default 'all' check (default_topic ~ '^[a-zA-Z0-9_.~%-]{1,255}$'),
   channel_id text not null default 'app_updates_channel' check (char_length(channel_id) between 1 and 100),
   -- Name of a per-app Edge Function secret (never the secret itself).
   secret_key text check (secret_key is null or secret_key ~ '^FCM_SERVICE_ACCOUNT_[A-Z0-9_]{1,60}$'),

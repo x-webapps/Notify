@@ -1,5 +1,7 @@
 import { clear, h } from "../dom";
+import { icon } from "../icons";
 import type { AppRec, NotificationStatus } from "../types";
+import { effectiveAppUrl } from "../validate";
 
 export interface Ctx {
   email: string;
@@ -27,6 +29,24 @@ export function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : "Something went wrong.";
 }
 
+function hashOf(text: string): number {
+  let n = 0;
+  for (const ch of text) n = (n * 31 + ch.codePointAt(0)!) >>> 0;
+  return n;
+}
+
+/** App icon (from icon_url) or a gradient letter avatar. Sizes: sm 20px, md 44px, lg 56px. */
+export function appAvatar(app: Pick<AppRec, "name" | "icon_url">, size: "sm" | "md" | "lg" = "md"): HTMLElement {
+  const letter = (app.name.trim()[0] ?? "?").toUpperCase();
+  const fallback = (): HTMLElement =>
+    h("span", { class: `avatar avatar-${size} av-${hashOf(app.name) % 6}`, "aria-hidden": "true" }, letter);
+  const url = app.icon_url?.trim();
+  if (!url || !/^https:\/\//i.test(url)) return fallback();
+  const img = h("img", { class: `avatar avatar-${size} avatar-img`, src: url, alt: "", referrerpolicy: "no-referrer", loading: "lazy" });
+  img.addEventListener("error", () => img.replaceWith(fallback()));
+  return img;
+}
+
 export function link(href: string, text: string, cls = ""): HTMLAnchorElement {
   return h("a", { href, class: cls }, text);
 }
@@ -37,7 +57,19 @@ export function appTabs(app: AppRec, active: "compose" | "history" | "templates"
   return h(
     "header",
     { class: "app-header" },
-    h("div", { class: "crumbs" }, h("a", { href: "#/" }, "Apps"), " / ", h("strong", {}, app.name)),
+    h("div", { class: "crumbs" }, h("a", { href: "#/" }, "Apps"), " / ", app.name),
+    h(
+      "div",
+      { class: "app-title" },
+      appAvatar(app, "lg"),
+      h("div", { class: "app-title-text" }, h("h1", {}, app.name), h("p", { class: "mono muted" }, app.package_name)),
+      h(
+        "a",
+        { href: effectiveAppUrl(app), target: "_blank", rel: "noopener noreferrer", class: "btn btn-ghost btn-sm" },
+        "Open app page ",
+        icon("external", 14),
+      ),
+    ),
     h(
       "nav",
       { class: "tabs", "aria-label": `${app.name} sections` },

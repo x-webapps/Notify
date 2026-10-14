@@ -5,6 +5,7 @@ import type { AppRec } from "./types";
 const app: AppRec = {
   id: "x", created_at: "2026-01-01", name: "Glass", package_name: "com.glass", fcm_project_id: "glass-12345",
   default_topic: "all", channel_id: "app_updates_channel", secret_key: null, url_allowlist: ["example.com"],
+  icon_url: "https://cdn.example.com/i.png", app_url: null,
 };
 
 describe("apps export/import", () => {
@@ -14,7 +15,8 @@ describe("apps export/import", () => {
     expect(json).not.toContain('"id"');
     expect(parseAppsImport(json)).toEqual([
       { name: "Glass", package_name: "com.glass", fcm_project_id: "glass-12345", default_topic: "all",
-        channel_id: "app_updates_channel", secret_key: null, url_allowlist: ["example.com"] },
+        channel_id: "app_updates_channel", secret_key: null, url_allowlist: ["example.com"],
+        icon_url: "https://cdn.example.com/i.png", app_url: null },
     ]);
   });
 

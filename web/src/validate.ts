@@ -18,7 +18,7 @@ const HTTP_RE = /^https?:\/\//i;
 const HTTPS_RE = /^https:\/\//i;
 // eslint-disable-next-line no-control-regex
 const BAD_CHARS_RE = /[\u0000- \u007f]/;
-const TOPIC_RE = /^[a-zA-Z0-9\-_.~%]{1,900}$/;
+const TOPIC_RE = /^[a-zA-Z0-9_.~%-]{1,255}$/;
 const CONDITION_RE = /^[a-zA-Z0-9\-_.~%'"&|()! ]{1,1000}$/;
 const TOKEN_RE = /^[A-Za-z0-9\-_:]{20,4096}$/;
 export const SECRET_NAME_RE = /^FCM_SERVICE_ACCOUNT_[A-Z0-9_]{1,60}$/;
@@ -69,6 +69,17 @@ export function validateLink(raw: string | null | undefined, allowlist?: readonl
     return `Link host "${url.hostname}" is not in this app's allowed domains.`;
   }
   return null;
+}
+
+/** Play Store page derived from the package name (used when no App URL is set). */
+export function playStoreUrl(packageName: string): string {
+  return `https://play.google.com/store/apps/details?id=${encodeURIComponent(packageName.trim())}`;
+}
+
+/** The App URL if set and valid, otherwise the auto-detected Play Store link. */
+export function effectiveAppUrl(app: { app_url: string | null; package_name: string }): string {
+  const custom = app.app_url?.trim();
+  return custom && parseHttpUrl(custom) ? custom : playStoreUrl(app.package_name);
 }
 
 export function validateImage(raw: string | null | undefined): string | null {

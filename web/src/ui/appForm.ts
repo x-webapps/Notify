@@ -2,13 +2,15 @@ import { createApp, deleteApp, getApp, updateApp } from "../api";
 import { clear, confirmModal, field, h, toast } from "../dom";
 import { go } from "../router";
 import type { AppInput, AppRec } from "../types";
-import { FCM_PROJECT_RE, isValidTopic, parseDomainList, SECRET_NAME_RE } from "../validate";
-import { appTabs, errMsg, errorState, loading, type Screen } from "./common";
+import { FCM_PROJECT_RE, isValidTopic, parseDomainList, parseHttpUrl, playStoreUrl, SECRET_NAME_RE, validateImage } from "../validate";
+import { appAvatar, appTabs, errMsg, errorState, loading, type Screen } from "./common";
 
-function buildForm(existing: AppRec | null): HTMLElement {
+export function buildForm(existing: AppRec | null): HTMLElement {
   const name = h("input", { type: "text", maxlength: 80, required: true, value: existing?.name ?? "" });
   const pkg = h("input", { type: "text", maxlength: 200, required: true, value: existing?.package_name ?? "", placeholder: "com.example.app", autocapitalize: "off", spellcheck: "false" });
   const project = h("input", { type: "text", required: true, value: existing?.fcm_project_id ?? "", placeholder: "my-app-12345", autocapitalize: "off", spellcheck: "false" });
+  const icon = h("input", { type: "text", inputmode: "url", value: existing?.icon_url ?? "", placeholder: "https://…/icon.png", spellcheck: "false", autocomplete: "off" });
+  const appUrl = h("input", { type: "text", inputmode: "url", value: existing?.app_url ?? "", spellcheck: "false", autocomplete: "off" });
   const topic = h("input", { type: "text", value: existing?.default_topic ?? "all" });
   const channel = h("input", { type: "text", maxlength: 100, value: existing?.channel_id ?? "app_updates_channel" });
   const secret = h("input", { type: "text", value: existing?.secret_key ?? "", placeholder: "FCM_SERVICE_ACCOUNT_MYAPP", autocapitalize: "characters", spellcheck: "false" });
@@ -17,6 +19,16 @@ function buildForm(existing: AppRec | null): HTMLElement {
   const fName = field("App name", name);
   const fPkg = field("Package name", pkg);
   const fProject = field("FCM project ID", project, { hint: "Firebase console → Project settings → Project ID." });
+  const iconPreview = h("div", { class: "icon-preview" });
+  const fIcon = field("App icon URL (optional)", icon, { hint: "A direct https:// link to a square PNG/JPG. Shown on cards and in the preview." });
+  const fAppUrl = field("App URL (optional)", appUrl, { hint: "Detected automatically from the package name when left empty." });
+  const syncAuto = (): void => {
+    appUrl.placeholder = pkg.value.trim() ? playStoreUrl(pkg.value) : "https://play.google.com/store/apps/details?id=…";
+    clear(iconPreview);
+    iconPreview.appendChild(appAvatar({ name: name.value || "?", icon_url: icon.value.trim() || null }, "md"));
+  };
+  for (const el of [name, pkg, icon]) el.addEventListener("input", syncAuto);
+  syncAuto();
   const fTopic = field("Default topic", topic, { hint: "The topic every user subscribes to (usually “all”)." });
   const fChannel = field("Notification channel ID", channel, { hint: "Must match the channel created in the Android app." });
   const fSecret = field("Own service-account secret name (optional)", secret, {
@@ -28,7 +40,7 @@ function buildForm(existing: AppRec | null): HTMLElement {
 
   const save = h("button", { type: "submit", class: "btn btn-primary" }, existing ? "Save changes" : "Add app");
   const form = h("form", { class: "card form", novalidate: true });
-  form.append(fName.wrap, fPkg.wrap, fProject.wrap, fTopic.wrap, fChannel.wrap, fSecret.wrap, fAllow.wrap);
+  form.append(fName.wrap, fPkg.wrap, fProject.wrap, h("div", { class: "icon-row" }, iconPreview, fIcon.wrap), fAppUrl.wrap, fTopic.wrap, fChannel.wrap, fSecret.wrap, fAllow.wrap);
 
   const actions = h("div", { class: "row" }, save);
   if (existing) {
@@ -63,6 +75,8 @@ function buildForm(existing: AppRec | null): HTMLElement {
       channel_id: channel.value.trim() || "app_updates_channel",
       secret_key: secret.value.trim() || null,
       url_allowlist: parseDomainList(allow.value),
+      icon_url: icon.value.trim() || null,
+      app_url: appUrl.value.trim() || null,
     };
     const errs = {
       name: input.name ? undefined : "Name is required.",
@@ -76,7 +90,11 @@ function buildForm(existing: AppRec | null): HTMLElement {
     fProject.setError(errs.project);
     fTopic.setError(errs.topic);
     fSecret.setError(errs.secret);
-    if (Object.values(errs).some(Boolean)) return;
+    const iconErr = validateImage(input.icon_url);
+    const appUrlErr = input.app_url && !parseHttpUrl(input.app_url) ? "App URL must be a valid http(s) link." : undefined;
+    fIcon.setError(iconErr ?? undefined);
+    fAppUrl.setError(appUrlErr);
+    if (Object.values(errs).some(Boolean) || iconErr || appUrlErr) return;
 
     save.disabled = true;
     try {

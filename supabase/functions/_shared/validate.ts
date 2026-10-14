@@ -18,7 +18,7 @@ const HTTP_RE = /^https?:\/\//i;
 const HTTPS_RE = /^https:\/\//i;
 // deno-lint-ignore no-control-regex
 const BAD_CHARS_RE = /[\u0000- \u007f]/;
-const TOPIC_RE = /^[a-zA-Z0-9\-_.~%]{1,900}$/;
+const TOPIC_RE = /^[a-zA-Z0-9_.~%-]{1,255}$/;
 const CONDITION_RE = /^[a-zA-Z0-9\-_.~%'"&|()! ]{1,1000}$/;
 const TOKEN_RE = /^[A-Za-z0-9\-_:]{20,4096}$/;
 const SECRET_NAME_RE = /^FCM_SERVICE_ACCOUNT_[A-Z0-9_]{1,60}$/;

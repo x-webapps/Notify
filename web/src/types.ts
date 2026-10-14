@@ -13,6 +13,8 @@ export interface AppRec {
   channel_id: string;
   secret_key: string | null;
   url_allowlist: string[];
+  icon_url: string | null;
+  app_url: string | null;
   created_at: string;
 }
 

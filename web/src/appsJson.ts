@@ -1,5 +1,5 @@
 import type { AppInput, AppRec } from "./types";
-import { FCM_PROJECT_RE, isValidTopic, normalizeDomain, SECRET_NAME_RE } from "./validate";
+import { FCM_PROJECT_RE, isValidTopic, normalizeDomain, parseHttpUrl, SECRET_NAME_RE, validateImage } from "./validate";
 
 export interface AppsExport {
   version: 1;
@@ -18,6 +18,8 @@ export function exportApps(apps: AppRec[]): AppsExport {
       channel_id: a.channel_id,
       secret_key: a.secret_key,
       url_allowlist: a.url_allowlist,
+      icon_url: a.icon_url,
+      app_url: a.app_url,
     })),
   };
 }
@@ -47,11 +49,15 @@ export function parseAppsImport(text: string): AppInput[] {
     if (!name) throw new Error(`${where}: name is missing.`);
     if (!pkg) throw new Error(`${where}: package_name is missing.`);
     if (!project || !FCM_PROJECT_RE.test(project)) throw new Error(`${where}: fcm_project_id is invalid.`);
-    const topic = str(o.default_topic, 900) ?? "all";
+    const topic = str(o.default_topic, 255) ?? "all";
     if (!isValidTopic(topic)) throw new Error(`${where}: default_topic is invalid.`);
     const secret = o.secret_key == null || o.secret_key === "" ? null : String(o.secret_key);
     if (secret && !SECRET_NAME_RE.test(secret)) throw new Error(`${where}: secret_key must look like FCM_SERVICE_ACCOUNT_NAME.`);
     const allow = Array.isArray(o.url_allowlist) ? o.url_allowlist.filter((x): x is string => typeof x === "string") : [];
+    const iconUrl = typeof o.icon_url === "string" && o.icon_url.trim() ? o.icon_url.trim() : null;
+    if (iconUrl && validateImage(iconUrl)) throw new Error(`${where}: icon_url must be an https URL.`);
+    const appUrl = typeof o.app_url === "string" && o.app_url.trim() ? o.app_url.trim() : null;
+    if (appUrl && !parseHttpUrl(appUrl)) throw new Error(`${where}: app_url must be an http(s) URL.`);
     return {
       name,
       package_name: pkg,
@@ -60,6 +66,8 @@ export function parseAppsImport(text: string): AppInput[] {
       channel_id: str(o.channel_id, 100) ?? "app_updates_channel",
       secret_key: secret,
       url_allowlist: [...new Set(allow.map(normalizeDomain).filter(Boolean))],
+      icon_url: iconUrl,
+      app_url: appUrl,
     };
   });
 }

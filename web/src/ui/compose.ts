@@ -9,7 +9,7 @@ import {
 } from "../api";
 import { append, clear, confirmModal, field, h, showModal, toast } from "../dom";
 import type { AppRec, SendResult, TargetType } from "../types";
-import { hasErrors, LIMITS, validateFields, validateSchedule, type FieldErrors } from "../validate";
+import { effectiveAppUrl, hasErrors, LIMITS, validateFields, validateSchedule, type FieldErrors } from "../validate";
 import { appTabs, errMsg, errorState, loading, type Ctx } from "./common";
 import { createPreview } from "./preview";
 
@@ -57,8 +57,8 @@ function resultBox(): { el: HTMLElement; show: (r: SendResult | { error: string 
   };
 }
 
-function buildComposer(app: AppRec, ctx: Ctx, prefill: Partial<ComposePayload>): HTMLElement {
-  const preview = createPreview();
+export function buildComposer(app: AppRec, ctx: Ctx, prefill: Partial<ComposePayload>): HTMLElement {
+  const preview = createPreview(app);
 
   // ---- inputs
   const title = h("input", { type: "text", maxlength: LIMITS.title, autocomplete: "off", value: prefill.title ?? "" });
@@ -98,6 +98,12 @@ function buildComposer(app: AppRec, ctx: Ctx, prefill: Partial<ComposePayload>):
   const fTitle = field("Title", title);
   const fBody = field("Message", body);
   const fUrl = field("Link URL (optional)", url, { hint: "Opens in the browser when the notification is tapped. Sent as data key “url”." });
+  const useAppLink = h("button", { type: "button", class: "btn btn-ghost btn-sm link-chip" }, "Use app page link");
+  useAppLink.addEventListener("click", () => {
+    url.value = effectiveAppUrl(app);
+    url.dispatchEvent(new Event("input"));
+  });
+  fUrl.wrap.querySelector("label")?.after(useAppLink);
   const fImage = field("Image URL (optional)", image, { hint: "Must be https. Shown as a large image on Android." });
   const fTarget = field("Target", targetSel);
   const fTargetValue = field("Target value", targetValue);

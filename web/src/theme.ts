@@ -2,9 +2,9 @@ export type Theme = "dark" | "light";
 
 export function getTheme(): Theme {
   try {
-    return localStorage.getItem("theme") === "light" ? "light" : "dark";
+    return localStorage.getItem("theme") === "dark" ? "dark" : "light";
   } catch {
-    return "dark";
+    return "light";
   }
 }
 

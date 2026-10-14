@@ -1,6 +1,7 @@
 import "./styles.css";
 import { resolveAuth, type AuthState } from "./auth";
 import { clear, h } from "./dom";
+import { icon } from "./icons";
 import { parseHash } from "./router";
 import { configError, supabase } from "./supabase";
 import { applyStoredTheme } from "./theme";
@@ -60,7 +61,7 @@ async function render(): Promise<void> {
     h(
       "header",
       { class: "topbar" },
-      h("a", { href: "#/", class: "brand" }, h("span", { "aria-hidden": "true" }, "🔔 "), "Push Admin"),
+      h("a", { href: "#/", class: "brand" }, h("span", { class: "brand-mark", "aria-hidden": "true" }, icon("bell", 16)), "Push Admin"),
       h(
         "nav",
         { "aria-label": "Main" },

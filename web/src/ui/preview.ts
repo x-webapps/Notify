@@ -1,5 +1,7 @@
 import { h } from "../dom";
+import type { AppRec } from "../types";
 import { parseHttpUrl } from "../validate";
+import { appAvatar } from "./common";
 
 export interface PreviewData {
   appName: string;
@@ -8,8 +10,8 @@ export interface PreviewData {
   imageUrl: string;
 }
 
-/** Approximate Android notification (collapsed/expanded look). Updates live as the user types. */
-export function createPreview(): { el: HTMLElement; update: (d: PreviewData) => void } {
+/** Approximate Android notification on a lock-screen backdrop. Updates live as the user types. */
+export function createPreview(app: Pick<AppRec, "name" | "icon_url">): { el: HTMLElement; update: (d: PreviewData) => void } {
   const appName = h("span", { class: "pv-app" });
   const title = h("div", { class: "pv-title" });
   const body = h("div", { class: "pv-body" });
@@ -20,18 +22,16 @@ export function createPreview(): { el: HTMLElement; update: (d: PreviewData) => 
     h("h3", {}, "Preview"),
     h(
       "div",
-      { class: "pv-card" },
+      { class: "pv-phone" },
+      h("div", { class: "pv-clock", "aria-hidden": "true" }, "9:41"),
       h(
         "div",
-        { class: "pv-head" },
-        h("span", { class: "pv-icon", "aria-hidden": "true" }, "🔔"),
-        appName,
-        h("span", { class: "pv-dot" }, "•"),
-        h("span", { class: "pv-time" }, "now"),
+        { class: "pv-card" },
+        h("div", { class: "pv-head" }, appAvatar(app, "sm"), appName, h("span", { class: "pv-dot" }, "•"), h("span", {}, "now")),
+        title,
+        body,
+        image,
       ),
-      title,
-      body,
-      image,
     ),
   );
   image.addEventListener("error", () => {
