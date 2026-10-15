@@ -180,11 +180,17 @@ export function mapFcmError(status: number, body: unknown): { error: string; hin
   return { error: `${code}: ${detail}`.slice(0, 600), hint };
 }
 
-export async function sendFcm(projectId: string, accessToken: string, payload: FcmMessage): Promise<SendOutcome> {
+/** With validateOnly, FCM checks credentials, project and message but delivers nothing. */
+export async function sendFcm(
+  projectId: string,
+  accessToken: string,
+  payload: FcmMessage,
+  validateOnly = false,
+): Promise<SendOutcome> {
   const res = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/messages:send`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(validateOnly ? { ...payload, validate_only: true } : payload),
   });
   let body: unknown = null;
   try {

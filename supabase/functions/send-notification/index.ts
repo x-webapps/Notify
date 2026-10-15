@@ -1,7 +1,7 @@
 // POST { notification_id }                      -> send an existing scheduled/failed row now
 // POST { app_id, title, body, url?, image_url?, target_type, target_value } -> create + send now
 import { bearerToken, isAllowedAdmin, isValidCronSecret } from "../_shared/auth.ts";
-import { deliver } from "../_shared/deliver.ts";
+import { checkConnection, deliver } from "../_shared/deliver.ts";
 import { corsHeaders, json, serviceClient } from "../_shared/http.ts";
 import type { AppRow, NotificationRow } from "../_shared/types.ts";
 import { safeTimeZone } from "../_shared/variables.ts";
@@ -11,6 +11,7 @@ interface SendPayload extends Partial<NotificationInput> {
   notification_id?: string;
   tz?: string;
   app_id?: string;
+  check_app_id?: string; // dry-run connection check, sends nothing
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -43,6 +44,12 @@ Deno.serve(async (req) => {
       payload = await req.json();
     } catch {
       return json(req, { error: "Body must be JSON." }, 400);
+    }
+
+    if (payload.check_app_id) {
+      if (viaCron) return json(req, { error: "Scheduler may only send existing notifications." }, 400);
+      if (!UUID_RE.test(payload.check_app_id)) return json(req, { error: "Invalid app id." }, 400);
+      return json(req, await checkConnection(db, payload.check_app_id));
     }
 
     let row: NotificationRow;

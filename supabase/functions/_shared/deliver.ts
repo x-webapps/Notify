@@ -42,6 +42,73 @@ async function finish(
   };
 }
 
+export interface ConnectionCheck {
+  ok: boolean;
+  project_id?: string;
+  service_account_email?: string;
+  error?: string;
+  hint?: string;
+}
+
+/**
+ * Dry run against FCM (validate_only): proves the service account is valid, the project ID exists,
+ * the FCM V1 API is enabled and the account may send there. Nothing is delivered. It cannot tell
+ * whether the Android app is installed or subscribed, because FCM does not expose that.
+ */
+export async function checkConnection(
+  db: SupabaseClient,
+  appId: string,
+  env: EnvGetter = (n) => Deno.env.get(n),
+): Promise<ConnectionCheck> {
+  const { data: app } = await db.from("apps").select("id,fcm_project_id,default_topic,channel_id,secret_key")
+    .eq("id", appId).maybeSingle<AppRow>();
+  if (!app) return { ok: false, error: "App not found." };
+
+  const json = resolveServiceAccountJson(app.secret_key, env);
+  if (!json) {
+    return {
+      ok: false,
+      project_id: app.fcm_project_id,
+      error: "No FCM service account secret configured.",
+      hint: "Set FCM_SERVICE_ACCOUNT (or this app's own secret) with `supabase secrets set`.",
+    };
+  }
+
+  let sa;
+  try {
+    sa = parseServiceAccount(json);
+  } catch (e) {
+    return { ok: false, project_id: app.fcm_project_id, error: e instanceof Error ? e.message : "Invalid service account." };
+  }
+  const base = { project_id: app.fcm_project_id, service_account_email: sa.client_email };
+
+  try {
+    const token = await getAccessToken(sa);
+    const payload = buildMessage({
+      title: "Connection check",
+      body: "Connection check",
+      target_type: "topic",
+      target_value: app.default_topic || "all",
+      channel_id: app.channel_id,
+    });
+    const outcome = await sendFcm(app.fcm_project_id, token, payload, true);
+    if (outcome.ok) return { ok: true, ...base };
+    // A topic send never hits "unregistered token", so 404 here means the project is not reachable.
+    const notFound = /NOT_FOUND|UNREGISTERED|404/.test(outcome.error ?? "");
+    return {
+      ok: false,
+      ...base,
+      error: outcome.error,
+      hint: notFound
+        ? "Firebase project not found. Check the FCM project ID, and that FCM API (V1) is enabled in that project."
+        : outcome.hint,
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Unexpected error";
+    return { ok: false, ...base, error: message.slice(0, 500) };
+  }
+}
+
 export async function deliver(
   db: SupabaseClient,
   row: NotificationRow,

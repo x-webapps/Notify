@@ -68,6 +68,14 @@ export interface SendResult {
   hint?: string;
 }
 
+export interface ConnectionCheck {
+  ok: boolean;
+  project_id?: string;
+  service_account_email?: string;
+  error?: string;
+  hint?: string;
+}
+
 export type TargetChoice = "default" | "topic" | "condition" | "token" | "audience";
 
 export interface DraftRec {

@@ -5,6 +5,7 @@ import { bucketByDay, lastDays } from "./stats";
 import type {
   AppInput,
   AudienceKind,
+  ConnectionCheck,
   AudienceTopic,
   DashboardData,
   DraftInput,
@@ -212,6 +213,25 @@ export async function sendNow(payload: ComposePayload): Promise<SendResult> {
         if (body.error) message = body.error;
       } catch { /* keep default */ }
       throw new ApiError(message);
+    }
+    throw new ApiError(error.message);
+  }
+  if (!data) throw new ApiError("Empty response from server.");
+  return data;
+}
+
+/** Dry-run FCM check for an app (sends nothing). */
+export async function checkAppConnection(appId: string): Promise<ConnectionCheck> {
+  const { data, error } = await supabase.functions.invoke<ConnectionCheck>("send-notification", { body: { check_app_id: appId } });
+  if (error) {
+    if (error instanceof FunctionsHttpError) {
+      try {
+        const body = (await error.context.json()) as { error?: string };
+        if (body.error) throw new ApiError(body.error);
+      } catch (e) {
+        if (e instanceof ApiError) throw e;
+      }
+      throw new ApiError(`Server returned an error (${error.context.status}).`);
     }
     throw new ApiError(error.message);
   }

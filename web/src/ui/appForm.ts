@@ -1,4 +1,4 @@
-import { createApp, deleteApp, getApp, updateApp } from "../api";
+import { checkAppConnection, createApp, deleteApp, getApp, updateApp } from "../api";
 import { clear, confirmModal, field, h, toast } from "../dom";
 import { go } from "../router";
 import type { AppInput, AppRec } from "../types";
@@ -116,6 +116,48 @@ export function buildForm(existing: AppRec | null): HTMLElement {
   return form;
 }
 
+/** "Check connection" card: dry-run against FCM using the saved settings. */
+function connectionCard(app: AppRec): HTMLElement {
+  const out = h("div", { "aria-live": "polite" });
+  const btn = h("button", { type: "button", class: "btn btn-ghost" }, "Check connection");
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    clear(out);
+    out.appendChild(loading("Checking with Firebase…"));
+    try {
+      const r = await checkAppConnection(app.id);
+      clear(out);
+      const lines: (HTMLElement | null)[] = [];
+      if (r.ok) {
+        lines.push(h("strong", {}, "Connected"));
+        lines.push(h("p", {}, `Firebase project “${r.project_id}” accepts messages from this panel.`));
+      } else {
+        lines.push(h("strong", {}, "Not connected"));
+        lines.push(h("p", {}, r.error ?? "Unknown error."));
+        if (r.hint) lines.push(h("p", {}, r.hint));
+      }
+      if (r.service_account_email) {
+        lines.push(h("p", { class: "muted" }, "Service account used: ", h("span", { class: "mono" }, r.service_account_email)));
+        if (!r.ok) lines.push(h("p", { class: "muted" }, "In that Firebase project, grant this account the “Firebase Cloud Messaging Admin” role."));
+      }
+      out.appendChild(h("div", { class: `result ${r.ok ? "result-ok" : "result-error"}`, role: "status" }, ...lines));
+    } catch (e) {
+      clear(out);
+      out.appendChild(h("div", { class: "result result-error", role: "alert" }, errMsg(e)));
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  return h(
+    "div",
+    { class: "card form" },
+    h("h2", {}, "Connection"),
+    h("p", { class: "hint" }, "Dry-run with Google using the saved settings. Nothing is sent. It confirms the project ID, the FCM API and the service account permission. It can’t tell whether the app is installed on a device."),
+    h("div", { class: "row" }, btn),
+    out,
+  );
+}
+
 export const renderAppNew: Screen = (view) => {
   view.append(h("div", { class: "page-head" }, h("h1", {}, "Add app")), buildForm(null));
 };
@@ -125,7 +167,7 @@ export const renderAppEdit = (id: string): Screen => async (view) => {
   try {
     const app = await getApp(id);
     clear(view);
-    view.append(appTabs(app, "edit"), buildForm(app));
+    view.append(appTabs(app, "edit"), connectionCard(app), buildForm(app));
   } catch (e) {
     errorState(view, errMsg(e));
   }
