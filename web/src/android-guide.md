@@ -241,8 +241,13 @@ The country comes from the device region setting (not GPS).
 - Add this app's own `google-services.json` to `app/` (Firebase Console, Project settings, Your apps).
 - In the Push Admin panel: Apps, Add app. Enter the package name, the Firebase **Project ID** of this app,
   Default topic `all` and the same Channel ID as above.
-- Grant the panel's service account the "Firebase Cloud Messaging Admin" role in this app's Firebase project
-  and enable "Firebase Cloud Messaging API (V1)" there.
+- Server side, once per Firebase project: in this app's Firebase project (Google Cloud Console, IAM, Grant access)
+  give the panel's service account the **Firebase Cloud Messaging API Admin** role (not the older "Firebase Cloud
+  Messaging Admin", which cannot send V1 messages) and make sure "Firebase Cloud Messaging API (V1)" is enabled.
+  The service account email is shown in the panel under App settings, Check connection ("Service account used").
+  Pick the panel's account, not this project's own `firebase-adminsdk` account. Terminal alternative, logged in as
+  a project Owner: `gcloud projects add-iam-policy-binding PROJECT_ID --member="serviceAccount:SERVICE_ACCOUNT_EMAIL"
+  --role="roles/firebasecloudmessaging.admin"`. Wait 1-2 minutes, then click Check connection until it says Connected.
 - Run a debug build on a device or emulator with Google Play services, open the app once, then use the
   panel's "Send test to token" (token from Logcat via a temporary
   `FirebaseMessaging.getInstance().token.addOnSuccessListener { Log.d("FCM_TOKEN", it) }`, removed afterwards).

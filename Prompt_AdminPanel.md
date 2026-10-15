@@ -29,7 +29,7 @@ Supabase Auth  +  Supabase Postgres (RLS)  +  Edge Functions (Deno)
 ## Credentials (critical)
 - FCM HTTP v1 needs a Google **service account** JSON. It must live ONLY in **Supabase Edge Function secrets**, never in the database, git, frontend bundle, `VITE_*` variables, logs, or any published file.
 - Support both modes:
-  1. **Central service account (recommended)**: one service account (from any one project) that has been granted the role **Firebase Cloud Messaging Admin** in **every** app's Firebase project. Secret name: `FCM_SERVICE_ACCOUNT` (full JSON). FCM API (V1) must be enabled in each app's project.
+  1. **Central service account (recommended)**: one service account (from any one project) that has been granted the role **Firebase Cloud Messaging API Admin** in **every** app's Firebase project. Secret name: `FCM_SERVICE_ACCOUNT` (full JSON). FCM API (V1) must be enabled in each app's project.
   2. **Per-app override (optional)**: secrets named `FCM_SERVICE_ACCOUNT_<APP_KEY>` (e.g. `FCM_SERVICE_ACCOUNT_GLASSWIDGETS`). The `apps` table stores only the **secret name reference** (`secret_key`), never the secret itself. The function falls back to the central one when no override exists.
 - Document how to set them: `supabase secrets set FCM_SERVICE_ACCOUNT="$(cat key.json)"`, and how to grant the IAM role in each Firebase project.
 - Cache the OAuth access token in the function's memory until ~5 min before expiry.
@@ -94,7 +94,7 @@ Supabase Auth  +  Supabase Postgres (RLS)  +  Edge Functions (Deno)
 - `firebase-messaging` dependency and that app's own `google-services.json`.
 - Call `FirebaseMessaging.getInstance().subscribeToTopic("all")` on first launch (required: this panel has no device-token database).
 - Notification channel matching the app's `channel_id` (default `app_updates_channel`), `POST_NOTIFICATIONS` permission, and handling the `url` data key on tap (see my `Guideline_Notification.md`).
-- Service account IAM setup: grant **Firebase Cloud Messaging Admin** in each app's Firebase project and enable **Firebase Cloud Messaging API (V1)**. Mention the org-policy `iam.disableServiceAccountKeyCreation` possibility and what to do.
+- Service account IAM setup: grant **Firebase Cloud Messaging API Admin** in each app's Firebase project and enable **Firebase Cloud Messaging API (V1)**. Mention the org-policy `iam.disableServiceAccountKeyCreation` possibility and what to do.
 
 ## Project structure and deliverables
 - `web/` (Vite app), `supabase/` (`migrations/`, `functions/send-notification`, `functions/process-scheduled`, `config.toml`), `.github/workflows/deploy.yml` (build + deploy to GitHub Pages using `actions/upload-pages-artifact` and `actions/deploy-pages`, with `permissions: pages: write, id-token: write`), `.github/workflows/keepalive.yml`, `.gitignore` (ignore `dist`, `node_modules`, `.env*`, `*service-account*.json`, `supabase/.temp`).

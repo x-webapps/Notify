@@ -85,3 +85,5 @@ input[type="date"], input[type="time"] {
 .guide-details { margin-top: 0.9rem; }
 .guide-details summary { cursor: pointer; font-weight: 650; font-size: 0.88rem; margin-bottom: 0.6rem; }
 .guide-pre { max-height: 420px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+
+.steps { margin: 0.25rem 0 0.75rem; padding-left: 1.25rem; display: grid; gap: 0.45rem; line-height: 1.5; overflow-wrap: anywhere; }

@@ -59,7 +59,7 @@ Copy the value from Logcat into the panel's *Test device token* field.
 
 ## 5. Service account access (one-time, per Firebase project)
 The panel sends through a service account, so for **every** app's Firebase project:
-1. Google Cloud Console → *IAM → Grant access* → add the service account's email → role **Firebase Cloud Messaging Admin**.
+1. Google Cloud Console → *IAM → Grant access* → add the service account's email → role **Firebase Cloud Messaging API Admin**.
 2. *APIs & Services → Library* → make sure **Firebase Cloud Messaging API (V1)** is enabled.
 
 If you cannot create the service-account key because of the organization policy

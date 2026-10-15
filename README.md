@@ -74,13 +74,13 @@ with your Google account email (lowercase). Only emails in `admins` get access.
 The migrations also create the **Storage bucket** for uploaded images.
 
 ### 4. FCM service account and secrets
-One service account can serve every app if it has the role **Firebase Cloud Messaging Admin** in *every*
+One service account can serve every app if it has the role **Firebase Cloud Messaging API Admin** in *every*
 app's Firebase project.
 
 1. Firebase console → *Project settings → Service accounts → Generate new private key*. Save the JSON
    **outside this folder**.
 2. In each app's Firebase project: Google Cloud Console → *IAM → Grant access* → the service account email →
-   **Firebase Cloud Messaging Admin**, and enable **Firebase Cloud Messaging API (V1)** (*APIs & Services → Library*).
+   **Firebase Cloud Messaging API Admin**, and enable **Firebase Cloud Messaging API (V1)** (*APIs & Services → Library*).
 3. Set the secrets (Git Bash):
 ```bash
 npx supabase secrets set FCM_SERVICE_ACCOUNT="$(cat C:/Users/<you>/Documents/key.json)"
@@ -208,7 +208,7 @@ without repository activity; re-enable it in the Actions tab if that happens.
 | Login loops or fails | Supabase Site URL / Redirect URLs (trailing slash), Google redirect URI |
 | "Not authorized" | Email missing in `admins` (lowercase), or Google email not verified |
 | Blank page | Actions build log; repo Variables set; Pages source is *GitHub Actions* |
-| Send fails with 403 | Service account lacks *Firebase Cloud Messaging Admin* in that project, or FCM V1 API is off |
+| Send fails with 403 | Service account lacks *Firebase Cloud Messaging API Admin* in that project, or FCM V1 API is off |
 | `SENDER_ID_MISMATCH` | Token comes from another Firebase project than the app's FCM project ID |
 | "Sent" but nothing arrives | App not subscribed (`PushTopics.sync` missing), notification permission off, wrong project ID. New subscriptions can take a few minutes |
 | Audience / local-time send reaches nobody | The device runs an app version without `PushTopics`; topic names must match exactly (`country_IN`, `v_42`, `utc_p0530`) |

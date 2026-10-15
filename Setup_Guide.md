@@ -37,7 +37,7 @@ Suggested order: (1) supabase/, (2) web/, (3) GitHub workflows, (4) README and A
    - Firebase Console -> Project settings -> Service accounts -> **Generate new private key**.
    - Save the JSON **outside the project folder** (e.g. `Documents`).
 4. **IAM role in every app's Firebase project**:
-   - Google Cloud Console -> IAM -> Grant access -> the service account email -> role **Firebase Cloud Messaging Admin**.
+   - Google Cloud Console -> IAM -> Grant access -> the service account email -> role **Firebase Cloud Messaging API Admin**.
    - Make sure **Firebase Cloud Messaging API (V1)** is enabled in that project.
 
 ## Stage 3: Deploy Supabase (terminal)

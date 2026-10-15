@@ -33,7 +33,7 @@ Deno.test("buildMessage omits optional fields and maps targets", () => {
 });
 
 Deno.test("mapFcmError gives readable hints", () => {
-  assertStringIncludes(mapFcmError(403, { error: { status: "PERMISSION_DENIED", message: "x" } }).hint, "Cloud Messaging Admin");
+  assertStringIncludes(mapFcmError(403, { error: { status: "PERMISSION_DENIED", message: "x" } }).hint, "Cloud Messaging API Admin");
   assertStringIncludes(
     mapFcmError(404, { error: { status: "NOT_FOUND", message: "x", details: [{ errorCode: "UNREGISTERED" }] } }).error,
     "UNREGISTERED",

@@ -85,6 +85,45 @@ export const renderSettings: Screen = (view, ctx) => {
     h("details", { class: "guide-details" }, h("summary", {}, "Preview the guide"), guidePre),
   );
 
+  // ---- Server-side setup: what each app's Firebase project must allow
+  const grantCmd =
+    'gcloud projects add-iam-policy-binding PROJECT_ID --member="serviceAccount:SERVICE_ACCOUNT_EMAIL" --role="roles/firebasecloudmessaging.admin"';
+  const enableCmd = "gcloud services enable fcm.googleapis.com --project=PROJECT_ID";
+  const copyBtn = (text: string, label: string): HTMLButtonElement => {
+    const b = h("button", { type: "button", class: "btn btn-ghost btn-sm" }, label);
+    b.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+        toast("Copied.", "success");
+      } catch {
+        toast("Could not copy automatically. Select the text and press Ctrl+C.", "error");
+      }
+    });
+    return b;
+  };
+  const serverCard = h(
+    "section",
+    { class: "card form" },
+    h("h2", {}, "Server-side setup (once per Firebase project)"),
+    h("p", { class: "muted" },
+      "The panel sends through one service account. Every app's Firebase project must allow that account to send, otherwise you get “PERMISSION_DENIED”."),
+    h("ol", { class: "steps" },
+      h("li", {}, "Add the app here (Apps → Add app) with the Firebase ", h("strong", {}, "Project ID"), " of that app."),
+      h("li", {}, "Find the service account email: open the app's ", h("strong", {}, "App settings"), " and click ", h("strong", {}, "Check connection"), ". It is shown under “Service account used”."),
+      h("li", {}, "In that Firebase project (Google Cloud Console → IAM → Grant access) give the email the role ",
+        h("strong", {}, "Firebase Cloud Messaging API Admin"),
+        ". Not “Firebase Cloud Messaging Admin”: that older role cannot send V1 messages. Be careful to pick the email from the panel's project, not the app's own ",
+        h("span", { class: "mono" }, "firebase-adminsdk"), " account."),
+      h("li", {}, "Make sure ", h("strong", {}, "Firebase Cloud Messaging API (V1)"), " is enabled in that project (usually already on)."),
+      h("li", {}, "Wait 1–2 minutes, then click ", h("strong", {}, "Check connection"), " again. It should say “Connected”."),
+    ),
+    h("p", { class: "muted" }, "Or do steps 3 and 4 from a terminal, logged in as an Owner of the project:"),
+    h("pre", { class: "code", tabindex: "0", "aria-label": "gcloud commands" }, `${grantCmd}\n${enableCmd}`),
+    h("div", { class: "row" }, copyBtn(grantCmd, "Copy grant command"), copyBtn(enableCmd, "Copy enable-API command")),
+    h("p", { class: "muted small" },
+      "“Connected” only proves Firebase accepts messages for that project. It cannot tell whether the app is installed or subscribed; use “Send test to token” for that. Apps that live in the same Firebase project share the setup, but also share topics, so give each its own default topic."),
+  );
+
   const out = h("button", { type: "button", class: "btn btn-danger" }, "Sign out");
   out.addEventListener("click", () => void signOut());
 
@@ -94,6 +133,7 @@ export const renderSettings: Screen = (view, ctx) => {
     h("section", { class: "card form" }, h("h2", {}, "Apps backup"),
       h("p", { class: "muted" }, "Exports contain app definitions only. No keys or secrets are ever included."),
       h("div", { class: "row" }, exportBtn, importBtn, file)),
+    serverCard,
     guideCard,
     h("section", { class: "card form" }, h("h2", {}, "Account"), h("p", { class: "muted" }, `Signed in as ${ctx.email}`), h("div", { class: "row" }, out)),
   );
