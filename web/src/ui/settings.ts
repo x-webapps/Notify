@@ -89,6 +89,11 @@ export const renderSettings: Screen = (view, ctx) => {
   const grantCmd =
     'gcloud projects add-iam-policy-binding PROJECT_ID --member="serviceAccount:SERVICE_ACCOUNT_EMAIL" --role="roles/firebasecloudmessaging.admin"';
   const enableCmd = "gcloud services enable fcm.googleapis.com --project=PROJECT_ID";
+  const checkLoginCmd = "gcloud auth list";
+  const loginCmd = "gcloud auth login";
+  const setAccountCmd = "gcloud config set account OWNER_EMAIL";
+  const verifyCmd =
+    'gcloud projects get-iam-policy PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:SERVICE_ACCOUNT_EMAIL" --format="value(bindings.role)"';
   const copyBtn = (text: string, label: string): HTMLButtonElement => {
     const b = h("button", { type: "button", class: "btn btn-ghost btn-sm" }, label);
     b.addEventListener("click", async () => {
@@ -117,9 +122,18 @@ export const renderSettings: Screen = (view, ctx) => {
       h("li", {}, "Make sure ", h("strong", {}, "Firebase Cloud Messaging API (V1)"), " is enabled in that project (usually already on)."),
       h("li", {}, "Wait 1–2 minutes, then click ", h("strong", {}, "Check connection"), " again. It should say “Connected”."),
     ),
-    h("p", { class: "muted" }, "Or do steps 3 and 4 from a terminal, logged in as an Owner of the project:"),
-    h("pre", { class: "code", tabindex: "0", "aria-label": "gcloud commands" }, `${grantCmd}\n${enableCmd}`),
-    h("div", { class: "row" }, copyBtn(grantCmd, "Copy grant command"), copyBtn(enableCmd, "Copy enable-API command")),
+    h("p", { class: "muted" }, "Or do steps 3 and 4 from a terminal (Command Prompt, PowerShell or Git Bash). You need the Google Cloud CLI (gcloud) and an account that is an Owner of the app's Firebase project:"),
+    h("ol", { class: "steps" },
+      h("li", {}, "Check you are logged in: ", h("span", { class: "mono" }, checkLoginCmd), ". If no account is listed, or it is not the Owner account, log in with ", h("span", { class: "mono" }, loginCmd), " (a browser window opens; sign in with the Owner's Google account)."),
+      h("li", {}, "If several accounts are listed, pick the Owner: ", h("span", { class: "mono" }, setAccountCmd), "."),
+      h("li", {}, "Replace PROJECT_ID with the app's Firebase Project ID and SERVICE_ACCOUNT_EMAIL with the “Service account used” email, then run the grant command. Keep the ", h("span", { class: "mono" }, "serviceAccount:"), " prefix: without it you get “INVALID_ARGUMENT … should appear as user:…”."),
+      h("li", {}, "Verify with the check command. It must print ", h("span", { class: "mono" }, "roles/firebasecloudmessaging.admin"), "."),
+    ),
+    h("pre", { class: "code", tabindex: "0", "aria-label": "gcloud commands" }, `${checkLoginCmd}\n${loginCmd}\n${setAccountCmd}\n${grantCmd}\n${verifyCmd}\n${enableCmd}`),
+    h("div", { class: "row" },
+      copyBtn(checkLoginCmd, "Copy login check"), copyBtn(loginCmd, "Copy login command"),
+      copyBtn(grantCmd, "Copy grant command"), copyBtn(verifyCmd, "Copy verify command"), copyBtn(enableCmd, "Copy enable-API command")),
+    h("p", { class: "muted small" }, "Common errors: “does not have permission” means the logged-in account is not an Owner (log in with the right one). “API not enabled” means run the enable-API command. Changes can take 1–2 minutes to apply."),
     h("p", { class: "muted small" },
       "“Connected” only proves Firebase accepts messages for that project. It cannot tell whether the app is installed or subscribed; use “Send test to token” for that. Apps that live in the same Firebase project share the setup, but also share topics, so give each its own default topic."),
   );

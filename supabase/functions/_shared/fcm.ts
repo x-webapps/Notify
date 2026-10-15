@@ -167,7 +167,7 @@ export function mapFcmError(status: number, body: unknown): { error: string; hin
     hint = "FCM rejected the message. Check the topic/condition/token and that image and link are valid.";
   } else if (code === "PERMISSION_DENIED" || status === 403) {
     hint =
-      "Access denied. The service account needs the 'Firebase Cloud Messaging API Admin' role in this app's Firebase project, and 'Firebase Cloud Messaging API (V1)' must be enabled there.";
+      "Access denied. The service account needs the 'Firebase Cloud Messaging API Admin' role in this app's Firebase project, and 'Firebase Cloud Messaging API (V1)' must be enabled there. From a terminal (not logged in? run: gcloud auth login): gcloud projects add-iam-policy-binding PROJECT_ID --member=\"serviceAccount:SERVICE_ACCOUNT_EMAIL\" --role=\"roles/firebasecloudmessaging.admin\". Details: Settings, Server-side setup.";
   } else if (code === "QUOTA_EXCEEDED" || status === 429) {
     hint = "FCM rate limit reached. Wait a moment and try again.";
   } else if (code === "UNAVAILABLE" || code === "INTERNAL" || status >= 500) {

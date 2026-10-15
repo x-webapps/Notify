@@ -138,7 +138,7 @@ function connectionCard(app: AppRec): HTMLElement {
       }
       if (r.service_account_email) {
         lines.push(h("p", { class: "muted" }, "Service account used: ", h("span", { class: "mono" }, r.service_account_email)));
-        if (!r.ok) lines.push(h("p", { class: "muted" }, "In that Firebase project, grant this account the “Firebase Cloud Messaging API Admin” role."));
+        if (!r.ok) lines.push(h("p", { class: "muted" }, "In that Firebase project, grant this account the “Firebase Cloud Messaging API Admin” role. Step-by-step terminal commands (including gcloud login) are in Settings → Server-side setup."));
       }
       out.appendChild(h("div", { class: `result ${r.ok ? "result-ok" : "result-error"}`, role: "status" }, ...lines));
     } catch (e) {

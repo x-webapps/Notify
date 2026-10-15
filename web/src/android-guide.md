@@ -247,7 +247,11 @@ The country comes from the device region setting (not GPS).
   The service account email is shown in the panel under App settings, Check connection ("Service account used").
   Pick the panel's account, not this project's own `firebase-adminsdk` account. Terminal alternative, logged in as
   a project Owner: `gcloud projects add-iam-policy-binding PROJECT_ID --member="serviceAccount:SERVICE_ACCOUNT_EMAIL"
-  --role="roles/firebasecloudmessaging.admin"`. Wait 1-2 minutes, then click Check connection until it says Connected.
+  --role="roles/firebasecloudmessaging.admin"`. Keep the `serviceAccount:` prefix. Before that, check `gcloud auth list`;
+  if no Owner account is listed, run `gcloud auth login` (and `gcloud config set account OWNER_EMAIL` if several are
+  listed). Verify with `gcloud projects get-iam-policy PROJECT_ID --flatten="bindings[].members"
+  --filter="bindings.members:SERVICE_ACCOUNT_EMAIL" --format="value(bindings.role)"`.
+  Wait 1-2 minutes, then click Check connection until it says Connected.
 - Run a debug build on a device or emulator with Google Play services, open the app once, then use the
   panel's "Send test to token" (token from Logcat via a temporary
   `FirebaseMessaging.getInstance().token.addOnSuccessListener { Log.d("FCM_TOKEN", it) }`, removed afterwards).

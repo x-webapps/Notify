@@ -206,6 +206,18 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
   );
   const when = h("input", { type: "datetime-local", value: toLocalInputValue(new Date(Date.now() + 3600_000)) });
   const testToken = h("input", { type: "text", autocomplete: "off", spellcheck: "false", placeholder: "Device token from Logcat" });
+  // The test token is kept in this browser only (localStorage, per app), so it survives reloads.
+  const tokenKey = `testToken:${app.id}`;
+  try {
+    testToken.value = localStorage.getItem(tokenKey) ?? "";
+  } catch { /* storage unavailable: the field simply starts empty */ }
+  testToken.addEventListener("input", () => {
+    try {
+      const v = testToken.value.trim();
+      if (v) localStorage.setItem(tokenKey, v);
+      else localStorage.removeItem(tokenKey);
+    } catch { /* ignore */ }
+  });
 
   const tCount = counter(LIMITS.title);
   const bCount = counter(LIMITS.body);
@@ -632,7 +644,19 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     result.el,
     h("hr", {}),
     h("h3", {}, "Send a test"),
-    h("p", { class: "muted" }, "Sends the content above to one device only. Get the token from Logcat in your app."),
+    h("p", { class: "muted" }, "Sends the content above to one device only. The token is saved in this browser for next time."),
+    h("details", { class: "guide-details" },
+      h("summary", {}, "How to get the device token"),
+      h("ol", { class: "steps" },
+        h("li", {}, "Temporarily add this to the app (for example in ", h("span", { class: "mono" }, "MainActivity.onCreate"), ") and remove it afterwards:"),
+        h("pre", { class: "code", tabindex: "0", "aria-label": "Kotlin snippet" }, TOKEN_SNIPPET),
+        h("li", {}, "Run the debug build on a device or emulator with Google Play services and open the app."),
+        h("li", {}, "Read the token from Logcat. In a terminal (USB debugging on, adb installed):"),
+        h("pre", { class: "code", tabindex: "0", "aria-label": "adb command" }, TOKEN_ADB),
+        h("li", {}, "Copy the long value after “FCM_TOKEN” and paste it below."),
+      ),
+      h("p", { class: "muted small" }, "Treat the token like a password: do not share it or commit it. It changes if the app is reinstalled or its data is cleared."),
+    ),
     fTest.wrap,
     testBtn,
   );
@@ -640,6 +664,10 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
   refresh();
   return h("div", { class: "compose" }, form, preview.el);
 }
+
+const TOKEN_SNIPPET =
+  'FirebaseMessaging.getInstance().token.addOnSuccessListener { Log.d("FCM_TOKEN", it) }';
+const TOKEN_ADB = "adb logcat -s FCM_TOKEN";
 
 export const renderCompose = (id: string, query: URLSearchParams) => async (view: HTMLElement, ctx: Ctx): Promise<void> => {
   view.appendChild(loading());

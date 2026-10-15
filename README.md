@@ -81,6 +81,17 @@ app's Firebase project.
    **outside this folder**.
 2. In each app's Firebase project: Google Cloud Console → *IAM → Grant access* → the service account email →
    **Firebase Cloud Messaging API Admin**, and enable **Firebase Cloud Messaging API (V1)** (*APIs & Services → Library*).
+   **Or from a terminal** (needs the Google Cloud CLI and an Owner account of that project):
+```bash
+gcloud auth list                # is an Owner account listed/active? if not:
+gcloud auth login               # opens a browser, sign in as the project Owner
+gcloud config set account OWNER_EMAIL   # only if several accounts are listed
+gcloud projects add-iam-policy-binding PROJECT_ID --member="serviceAccount:SERVICE_ACCOUNT_EMAIL" --role="roles/firebasecloudmessaging.admin"
+gcloud projects get-iam-policy PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:SERVICE_ACCOUNT_EMAIL" --format="value(bindings.role)"
+gcloud services enable fcm.googleapis.com --project=PROJECT_ID
+```
+   Keep the `serviceAccount:` prefix (a plain email fails with "should appear as user:..."). The service account email is
+   shown in the panel under *App settings → Check connection → Service account used*. Wait 1-2 minutes afterwards.
 3. Set the secrets (Git Bash):
 ```bash
 npx supabase secrets set FCM_SERVICE_ACCOUNT="$(cat C:/Users/<you>/Documents/key.json)"
