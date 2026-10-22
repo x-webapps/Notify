@@ -10,5 +10,8 @@ verify_jwt = true
 [functions.process-scheduled]
 verify_jwt = true
 
+[functions.app-credentials]
+verify_jwt = true
+
 [auth.email]
 enable_signup = false

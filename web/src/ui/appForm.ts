@@ -1,4 +1,5 @@
-import { checkAppConnection, createApp, deleteApp, getApp, updateApp } from "../api";
+import { checkAppConnection, createApp, deleteApp, getApp, removeAppKey, saveAppKey, updateApp } from "../api";
+import { KEY_MAX_BYTES, readServiceKey } from "../serviceKey";
 import { clear, confirmModal, field, h, toast } from "../dom";
 import { go } from "../router";
 import type { AppInput, AppRec } from "../types";
@@ -18,7 +19,64 @@ export function buildForm(existing: AppRec | null): HTMLElement {
 
   const fName = field("App name", name);
   const fPkg = field("Package name", pkg);
-  const fProject = field("FCM project ID", project, { hint: "Firebase console → Project settings → Project ID." });
+  const fProject = field("FCM project ID", project, { hint: "Filled in automatically when you choose a key file. Otherwise: Firebase console → Project settings → Project ID." });
+
+  // ---- Service account key: pick the file downloaded from Firebase; the server checks and stores it encrypted.
+  let pendingKey: string | null = null;
+  const keyFile = h("input", { type: "file", accept: "application/json,.json", class: "visually-hidden", "aria-label": "Service account key file (JSON)", tabindex: "-1" });
+  const keyBtn = h("button", { type: "button", class: "btn btn-ghost" }, existing?.has_credential ? "Replace key file" : "Choose key file");
+  const keyStatus = h("p", { class: "hint", "aria-live": "polite" });
+  const showStored = (): void => {
+    keyStatus.textContent = existing?.has_credential
+      ? `Key stored for ${existing.credential_email ?? "this app"}. It is encrypted and never shown again.`
+      : "No key yet. Without one, this app sends through the server’s central account.";
+  };
+  showStored();
+  keyBtn.addEventListener("click", () => keyFile.click());
+  keyFile.addEventListener("change", async () => {
+    const f = keyFile.files?.[0];
+    keyFile.value = "";
+    if (!f) return;
+    try {
+      if (f.size > KEY_MAX_BYTES) throw new Error("That file is too large to be a service account key.");
+      const text = await f.text();
+      const info = readServiceKey(text);
+      pendingKey = text;
+      project.value = info.projectId;
+      keyStatus.textContent = `Ready: ${info.email} (project ${info.projectId}). It is checked with Firebase when you save.`;
+    } catch (e) {
+      pendingKey = null;
+      showStored();
+      toast(errMsg(e), "error");
+    }
+  });
+  const keyRow = h("div", { class: "row" }, keyBtn, keyFile);
+  if (existing?.has_credential) {
+    const rm = h("button", { type: "button", class: "btn btn-ghost" }, "Remove key");
+    rm.addEventListener("click", async () => {
+      const ok = await confirmModal({
+        title: "Remove the stored key?",
+        message: "This app will fall back to the server’s central account until you upload a new key.",
+        confirmLabel: "Remove key",
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        await removeAppKey(existing.id);
+        toast("Key removed.", "success");
+        go(`/apps/${existing.id}/edit`);
+      } catch (e) {
+        toast(errMsg(e), "error");
+      }
+    });
+    keyRow.appendChild(rm);
+  }
+  const keyCard = h("div", { class: "form" },
+    h("label", {}, "Firebase service account key"),
+    h("p", { class: "hint" }, "Firebase console → Project settings → Service accounts → Generate new private key. Choose the downloaded .json file here. That is all the setup this app needs."),
+    keyRow,
+    keyStatus,
+  );
   const iconPreview = h("div", { class: "icon-preview" });
   const fIcon = field("App icon URL (optional)", icon, { hint: "A direct https:// link to a square PNG/JPG. Shown on cards and in the preview." });
   const fAppUrl = field("App URL (optional)", appUrl, { hint: "Detected automatically from the package name when left empty." });
@@ -31,16 +89,18 @@ export function buildForm(existing: AppRec | null): HTMLElement {
   syncAuto();
   const fTopic = field("Default topic", topic, { hint: "The topic every user subscribes to (usually “all”)." });
   const fChannel = field("Notification channel ID", channel, { hint: "Must match the channel created in the Android app." });
-  const fSecret = field("Own service-account secret name (optional)", secret, {
-    hint: "Leave empty to use the central FCM_SERVICE_ACCOUNT. Only the secret NAME goes here, never the key itself.",
+  const fSecret = field("Server secret name (advanced, optional)", secret, {
+    hint: "Only used when no key file is uploaded. Leave empty to use the central FCM_SERVICE_ACCOUNT. Only the secret NAME goes here, never the key itself.",
   });
+  const advanced = h("details", { class: "guide-details" }, h("summary", {}, "Advanced: use a server secret instead"), fSecret.wrap);
+  if (existing?.secret_key) advanced.setAttribute("open", "");
   const fAllow = field("Allowed link domains (optional)", allow, {
     hint: "One per line. If set, notification links must be on one of these domains (or subdomains).",
   });
 
   const save = h("button", { type: "submit", class: "btn btn-primary" }, existing ? "Save changes" : "Add app");
   const form = h("form", { class: "card form", novalidate: true });
-  form.append(fName.wrap, fPkg.wrap, fProject.wrap, h("div", { class: "icon-row" }, iconPreview, fIcon.wrap), fAppUrl.wrap, fTopic.wrap, fChannel.wrap, fSecret.wrap, fAllow.wrap);
+  form.append(fName.wrap, fPkg.wrap, keyCard, fProject.wrap, h("div", { class: "icon-row" }, iconPreview, fIcon.wrap), fAppUrl.wrap, fTopic.wrap, fChannel.wrap, advanced, fAllow.wrap);
 
   const actions = h("div", { class: "row" }, save);
   if (existing) {
@@ -98,15 +158,26 @@ export function buildForm(existing: AppRec | null): HTMLElement {
 
     save.disabled = true;
     try {
+      let id: string;
       if (existing) {
         await updateApp(existing.id, input);
-        toast("Saved.", "success");
-        go(`/apps/${existing.id}`);
+        id = existing.id;
       } else {
-        const created = await createApp(input);
-        toast("App added.", "success");
-        go(`/apps/${created.id}`);
+        id = (await createApp(input)).id;
       }
+      if (pendingKey) {
+        // The app is saved either way; a rejected key leaves the user on the edit page to retry.
+        const r = await saveAppKey(id, pendingKey);
+        if (!r.ok) {
+          toast(`Saved, but the key was not accepted: ${[r.error, r.hint].filter(Boolean).join(" ")}`, "error");
+          go(`/apps/${id}/edit`);
+          return;
+        }
+        toast("Saved. Key connected.", "success");
+      } else {
+        toast(existing ? "Saved." : "App added.", "success");
+      }
+      go(`/apps/${id}`);
     } catch (e) {
       const msg = errMsg(e);
       toast(/duplicate key|unique/i.test(msg) ? "An app with this package name already exists." : msg, "error");

@@ -97,10 +97,18 @@ gcloud services enable fcm.googleapis.com --project=PROJECT_ID
 npx supabase secrets set FCM_SERVICE_ACCOUNT="$(cat C:/Users/<you>/Documents/key.json)"
 npx supabase secrets set CRON_SECRET="<long random string, 32+ chars>"
 npx supabase secrets set ALLOWED_ORIGINS="https://<user>.github.io,http://localhost:5173"
+npx supabase secrets set CREDENTIAL_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 ```
-**Per-app key (optional):** set a secret named `FCM_SERVICE_ACCOUNT_<APP_KEY>` and enter that **name** (not
-the key) in the app's settings. Names must start with `FCM_SERVICE_ACCOUNT_`; the function refuses to read any
-other environment variable. Without an override the central key is used.
+`CREDENTIAL_ENCRYPTION_KEY` encrypts the per-app keys uploaded in the panel (see below). Generate it once and keep a
+copy somewhere safe: if it changes, stored keys can no longer be decrypted and must be uploaded again.
+
+**Per-app key (recommended):** when adding an app, choose its Firebase service account key file
+(Firebase console → Project settings → Service accounts → Generate new private key). The panel fills in the project
+ID, checks the key with Firebase (nothing is sent) and stores it AES-256-GCM encrypted. The browser never gets it back.
+This replaces the `gcloud` role-granting steps above for that app, because the Firebase Admin SDK account that
+Firebase creates already has permission to send. Order of use when sending: uploaded key, then the app's
+`FCM_SERVICE_ACCOUNT_<APP_KEY>` secret name (advanced), then the central `FCM_SERVICE_ACCOUNT`.
+Secret names must start with `FCM_SERVICE_ACCOUNT_`; the function refuses to read any other environment variable.
 
 > If key creation is blocked by the organization policy `iam.disableServiceAccountKeyCreation`, an organization
 > admin has to relax it for the project, or you create the key in a project outside that organization.
@@ -109,8 +117,9 @@ other environment variable. Without an override the central key is used.
 ```bash
 npx supabase functions deploy send-notification
 npx supabase functions deploy process-scheduled
+npx supabase functions deploy app-credentials
 ```
-JWT verification stays **on** for both (never pass `--no-verify-jwt`). Redeploy after any change in
+JWT verification stays **on** for all three (never pass `--no-verify-jwt`). Redeploy after any change in
 `supabase/functions/`.
 
 ### 6. Scheduler (`pg_cron`): required for Schedule and Device local time

@@ -1,6 +1,7 @@
 // Sends one already-claimed notification (status = 'sending') and records the outcome.
 
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2.45.4";
+import { loadAppCredential } from "./credentials.ts";
 import { buildMessage, getAccessToken, parseServiceAccount, sendFcm } from "./fcm.ts";
 import type { AppRow, DeliveryResult, NotificationRow } from "./types.ts";
 import { defaultAnalyticsLabel, isValidSecretName, validateNotification } from "./validate.ts";
@@ -16,6 +17,14 @@ export function resolveServiceAccountJson(secretKey: string | null, env: EnvGett
   }
   return env("FCM_SERVICE_ACCOUNT") ?? null;
 }
+
+/** Key uploaded in the panel first, then the per-app secret, then the central secret. */
+async function resolveAppKey(db: SupabaseClient, app: AppRow, env: EnvGetter): Promise<string | null> {
+  return (await loadAppCredential(db, app.id, env)) ?? resolveServiceAccountJson(app.secret_key, env);
+}
+
+const NO_KEY_ERROR = "No service account key for this app.";
+const NO_KEY_HINT = "Open the app's settings and upload its Firebase service account key (or set FCM_SERVICE_ACCOUNT on the server).";
 
 async function finish(
   db: SupabaseClient,
@@ -64,15 +73,13 @@ export async function checkConnection(
     .eq("id", appId).maybeSingle<AppRow>();
   if (!app) return { ok: false, error: "App not found." };
 
-  const json = resolveServiceAccountJson(app.secret_key, env);
-  if (!json) {
-    return {
-      ok: false,
-      project_id: app.fcm_project_id,
-      error: "No FCM service account secret configured.",
-      hint: "Set FCM_SERVICE_ACCOUNT (or this app's own secret) with `supabase secrets set`.",
-    };
+  let json: string | null;
+  try {
+    json = await resolveAppKey(db, app, env);
+  } catch (e) {
+    return { ok: false, project_id: app.fcm_project_id, error: e instanceof Error ? e.message : "Could not load the key." };
   }
+  if (!json) return { ok: false, project_id: app.fcm_project_id, error: NO_KEY_ERROR, hint: NO_KEY_HINT };
 
   let sa;
   try {
@@ -136,14 +143,8 @@ export async function deliver(
       return await finish(db, row, { ok: false, error: `Validation failed: ${problems.join(" ")}` }, analyticsLabel);
     }
 
-    const json = resolveServiceAccountJson(app.secret_key, env);
-    if (!json) {
-      return await finish(db, row, {
-        ok: false,
-        error: "No FCM service account secret configured.",
-        hint: "Set FCM_SERVICE_ACCOUNT (or the app's own secret) with `supabase secrets set`.",
-      });
-    }
+    const json = await resolveAppKey(db, app, env);
+    if (!json) return await finish(db, row, { ok: false, error: NO_KEY_ERROR, hint: NO_KEY_HINT });
 
     const accessToken = await getAccessToken(parseServiceAccount(json));
     const payload = buildMessage({ ...content, channel_id: app.channel_id });

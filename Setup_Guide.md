@@ -48,6 +48,7 @@ npx supabase link --project-ref <your-project-ref>
 npx supabase db push
 npx supabase functions deploy send-notification
 npx supabase functions deploy process-scheduled
+npx supabase functions deploy app-credentials
 ```
 `db push` applies every migration (tables, security rules, drafts, audiences, local-time sends, image bucket, `pg_cron` and `pg_net`).
 It asks for confirmation; press Enter. Run it again whenever new migration files appear.
@@ -57,7 +58,12 @@ Set the secrets **yourself** in the terminal (do NOT paste the JSON into chat). 
 npx supabase secrets set FCM_SERVICE_ACCOUNT="$(cat C:/Users/<your-name>/Documents/key.json)"
 npx supabase secrets set CRON_SECRET="<long random string, 32+ characters>"
 npx supabase secrets set ALLOWED_ORIGINS="https://<user>.github.io,http://localhost:5173"
+npx supabase secrets set CREDENTIAL_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 ```
+`CREDENTIAL_ENCRYPTION_KEY` encrypts the service account keys you upload per app in the panel. Keep a copy: if it
+changes, those keys must be uploaded again. With it set, adding a new app only needs that app's key file
+(Firebase -> Project settings -> Service accounts -> Generate new private key); no `gcloud` steps.
+
 Then in Supabase **SQL Editor**:
 1. Insert your email into the `admins` table (`supabase/manual/seed_admin.sql`).
 2. Create the scheduler job: copy `supabase/manual/cron.sql` to `cron.local.sql`, fill in the project URL, the legacy

@@ -239,6 +239,33 @@ export async function checkAppConnection(appId: string): Promise<ConnectionCheck
   return data;
 }
 
+// ------------------------------------------------------------------ app service-account key
+async function invokeCredentials(body: Record<string, unknown>): Promise<ConnectionCheck> {
+  const { data, error } = await supabase.functions.invoke<ConnectionCheck>("app-credentials", { body });
+  if (error) {
+    if (error instanceof FunctionsHttpError) {
+      let message = `Server returned an error (${error.context.status}).`;
+      try {
+        const b = (await error.context.json()) as { error?: string };
+        if (b.error) message = b.error;
+      } catch { /* keep default */ }
+      throw new ApiError(message);
+    }
+    throw new ApiError(error.message);
+  }
+  if (!data) throw new ApiError("Empty response from server.");
+  return data;
+}
+
+/** Sends the key file text to the server, which checks it with Firebase and stores it encrypted. */
+export function saveAppKey(appId: string, serviceAccount: string): Promise<ConnectionCheck> {
+  return invokeCredentials({ app_id: appId, action: "save", service_account: serviceAccount });
+}
+
+export async function removeAppKey(appId: string): Promise<void> {
+  await invokeCredentials({ app_id: appId, action: "remove" });
+}
+
 // ------------------------------------------------------------------ templates
 export async function listTemplates(appId: string): Promise<TemplateRec[]> {
   const { data, error } = await supabase.from("templates").select("*").eq("app_id", appId)

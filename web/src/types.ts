@@ -15,10 +15,13 @@ export interface AppRec {
   url_allowlist: string[];
   icon_url: string | null;
   app_url: string | null;
+  /** Set by the app-credentials function when a key was uploaded; display only. */
+  has_credential: boolean;
+  credential_email: string | null;
   created_at: string;
 }
 
-export type AppInput = Omit<AppRec, "id" | "created_at">;
+export type AppInput = Omit<AppRec, "id" | "created_at" | "has_credential" | "credential_email">;
 
 export interface NotificationRec {
   id: string;
