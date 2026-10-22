@@ -4,7 +4,7 @@
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-function fromB64(b64: string): Uint8Array {
+function fromB64(b64: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
@@ -18,7 +18,7 @@ function toB64(bytes: Uint8Array): string {
 }
 
 async function importKey(masterKeyB64: string | undefined): Promise<CryptoKey> {
-  let raw: Uint8Array;
+  let raw: Uint8Array<ArrayBuffer>;
   try {
     raw = fromB64((masterKeyB64 ?? "").trim());
   } catch {
