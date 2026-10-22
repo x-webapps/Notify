@@ -11,7 +11,7 @@ Worked and tested on `com.nothing.icon.free` (Nothing Stock). Replace the placeh
 | `APP_PACKAGE` | `com.nothing.icon.free` | `MyApp.appId` in `buildSrc` / `namespace` in `app/build.gradle` |
 | `PROJECT_ID` | `nothing-stock` | Firebase console -> Project settings, or `project_id` in `google-services.json` |
 | `CHANNEL_ID` | `app_updates_channel` | Keep this value; it must match the panel |
-| `SERVICE_ACCOUNT_EMAIL` | `firebase-adminsdk-fbsvc@glass-widgets-9aefd.iam.gserviceaccount.com` | Panel -> App settings -> Check connection -> "Service account used" |
+| `SERVICE_ACCOUNT_EMAIL` | `firebase-adminsdk-fbsvc@glass-widgets-9aefd.iam.gserviceaccount.com` | Only for the central-account method: Panel -> App settings -> Check connection -> "Service account used" |
 | `OWNER_EMAIL` | your Google account | Must be an Owner of the Firebase project |
 
 Topic names (`all`, `v_<versionCode>`, `country_<ISO>`, `tz_<Zone>`, `utc_<p|m>HHMM`) and the `url` data key are a
@@ -149,6 +149,8 @@ package APP_PACKAGE.notifications
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -157,6 +159,8 @@ import APP_PACKAGE.R
 import dev.jahir.frames.extensions.context.color
 import dev.jahir.frames.extensions.context.hasNotificationsPermission
 import dev.jahir.frames.extensions.context.preferences
+import java.net.HttpURLConnection
+import java.net.URL
 
 class AppFirebaseMessagingService : FirebaseMessagingService() {
 
@@ -177,18 +181,42 @@ class AppFirebaseMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        // Background messages get their image from FCM itself; in the foreground we load it here.
+        val picture = message.notification?.imageUrl?.toString()?.let { downloadImage(it) }
+
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification) // white monochrome icon (OneSignal pack already has one)
             .setColor(color(R.color.accent))
             .setContentTitle(title)
             .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setContentIntent(pending)
-            .build()
+        if (picture != null) {
+            builder.setLargeIcon(picture).setStyle(
+                NotificationCompat.BigPictureStyle().bigPicture(picture).bigLargeIcon(null as Bitmap?).setSummaryText(body)
+            )
+        } else {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(body))
+        }
 
         getSystemService(NotificationManager::class.java)
-            ?.notify(System.currentTimeMillis().toInt(), notification)
+            ?.notify(System.currentTimeMillis().toInt(), builder.build())
+    }
+
+    /** onMessageReceived runs on a background thread, so a short blocking download is fine. Null on any problem. */
+    private fun downloadImage(url: String): Bitmap? {
+        if (!url.startsWith("https://")) return null
+        return try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 5000
+            conn.readTimeout = 8000
+            conn.inputStream.use { input ->
+                val bytes = input.readBytes()
+                if (bytes.size > 2_000_000) null else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     companion object {
@@ -224,6 +252,7 @@ object PushTopics {
             return
         }
 
+        forgetCacheIfProjectChanged(context)
         swap(context, "all", "all")
 
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -239,6 +268,17 @@ object PushTopics {
         val offsetMin = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60000
         val sign = if (offsetMin < 0) "m" else "p"
         swap(context, "offset", "utc_" + sign + "%02d%02d".format(abs(offsetMin) / 60, abs(offsetMin) % 60))
+    }
+
+    /**
+     * Topic subscriptions belong to one Firebase project. If google-services.json now points at another
+     * project, the remembered topics are stale, so forget them and subscribe again.
+     */
+    private fun forgetCacheIfProjectChanged(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val projectId = FirebaseApp.getInstance().options.projectId ?: return
+        if (prefs.getString("project_id", null) == projectId) return
+        prefs.edit().clear().putString("project_id", projectId).apply()
     }
 
     /** Subscribes to [topic]; leaves the topic previously stored for [slot] if it changed. */
@@ -351,50 +391,49 @@ adb shell am start -n APP_PACKAGE/.MainActivity -e url https://example.com
 
 ---
 
-## Part B - Push Admin panel and Google Cloud (per pack)
+## Part B - Push Admin panel (per pack)
 
-1. **Add the app in the panel:** Apps -> Add app. Package `APP_PACKAGE`, Firebase Project ID `PROJECT_ID`,
-   Default topic `all`, Channel ID `app_updates_channel`.
-2. **Get the service account email:** App settings -> Check connection -> "Service account used". It is the
-   panel's account (for example `firebase-adminsdk-...@<panel-project>.iam.gserviceaccount.com`), **not** the pack's
-   own `firebase-adminsdk` account. Before access is granted, Check connection will show PERMISSION_DENIED; that is expected.
-3. **Grant access** (terminal, Command Prompt / PowerShell / Git Bash; needs the Google Cloud CLI):
+1. **Create a service account key for the pack's Firebase project:** Firebase Console -> Project settings ->
+   Service accounts -> **Generate new private key**. Save the `.json` outside the repo. Never paste it into chat,
+   commit it, or give it to an AI agent.
+2. **Add the app in the panel:** Apps -> Add app. Package `APP_PACKAGE`, Default topic `all`, Channel ID
+   `app_updates_channel`, then **Choose key file** and pick the `.json`. The Firebase Project ID (`PROJECT_ID`) fills
+   in from the key. On save the panel checks the key with Firebase (nothing is sent) and stores it encrypted. There
+   are no `gcloud` or IAM steps: Firebase's own `firebase-adminsdk` account can already send.
+3. Open **App settings -> Check connection**. It should say **Connected**.
+4. **Test:** run a debug build, open the app, read the token with `adb logcat -s FCM_TOKEN`, paste it into the panel's
+   *Device token* field, give it a name and **Save device**, then **Send test to token**. Then send a real message to
+   topic `all` (the panel asks you to type the app name for a send to everyone).
+5. **Release** a version containing this change. Audience, country, time zone and local-time sends only reach users on it.
+   Existing OneSignal subscribers get nothing from Push Admin until they update.
+6. Delete the downloaded key file from your computer. The panel keeps its own encrypted copy.
 
-   Check who is logged in:
+If the key is rejected: it must come from the same Firebase project as this pack's `google-services.json`, and
+**Firebase Cloud Messaging API (V1)** must be enabled (Google Cloud Console -> APIs & Services -> Library).
+
+### Alternative: central account (no key per app)
+The older method: one service account (stored as the server secret `FCM_SERVICE_ACCOUNT`) is granted a role in
+every pack's Firebase project. Use it only if you cannot create keys (for example the organization policy
+`iam.disableServiceAccountKeyCreation` is on).
+
+1. Add the app in the panel without a key file. Open App settings -> Check connection -> "Service account used"
+   (the panel's account, **not** the pack's own `firebase-adminsdk` account). PERMISSION_DENIED is expected until access is granted.
+2. Grant access (terminal; needs the Google Cloud CLI and an Owner account of `PROJECT_ID`):
    ```bash
    gcloud auth list
-   ```
-   If no account is listed, or it is not an Owner of `PROJECT_ID`, log in (opens a browser):
-   ```bash
    gcloud auth login
-   ```
-   If several accounts are listed, pick the Owner:
-   ```bash
    gcloud config set account OWNER_EMAIL
-   ```
-   Grant the panel's service account the role. Keep the `serviceAccount:` prefix:
-   ```bash
    gcloud projects add-iam-policy-binding PROJECT_ID --member="serviceAccount:SERVICE_ACCOUNT_EMAIL" --role="roles/firebasecloudmessaging.admin"
-   ```
-   Verify (must print `roles/firebasecloudmessaging.admin`):
-   ```bash
    gcloud projects get-iam-policy PROJECT_ID --flatten="bindings[].members" --filter="bindings.members:SERVICE_ACCOUNT_EMAIL" --format="value(bindings.role)"
-   ```
-   Make sure the FCM V1 API is on (usually already enabled):
-   ```bash
    gcloud services enable fcm.googleapis.com --project=PROJECT_ID
    ```
-4. Wait 1-2 minutes, then click Check connection until it says **Connected**.
-5. **Test:** run a debug build, open the app, read the token with `adb logcat -s FCM_TOKEN`, paste it into the panel's
-   "Send test to token". Then send a real message to topic `all`.
-6. **Release** a version containing this change. Audience, country, time zone and local-time sends only reach users on it.
-   Existing OneSignal subscribers get nothing from Push Admin until they update.
-
-### Console alternative (no terminal)
-Google Cloud Console -> select `PROJECT_ID` -> IAM -> Grant access -> paste the service account email -> role
-**Firebase Cloud Messaging API Admin** (not the older "Firebase Cloud Messaging Admin", which cannot send V1 messages).
+   Keep the `serviceAccount:` prefix. Console alternative: Google Cloud Console -> `PROJECT_ID` -> IAM -> Grant access ->
+   the email -> role **Firebase Cloud Messaging API Admin** (not the older "Firebase Cloud Messaging Admin").
+3. Wait 1-2 minutes, then click Check connection until it says **Connected**.
 
 ## Troubleshooting
+
+The `gcloud` / role rows below only apply to the central-account method.
 
 | Symptom | Cause / fix |
 |---|---|

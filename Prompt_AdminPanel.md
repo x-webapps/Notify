@@ -157,3 +157,14 @@ The current behaviour is documented in `README.md`, `ANDROID_SETUP.md` and `Guid
 - A free GitHub Pages site needs a public repo, so nothing secret may ever be committed; rotate anything that was pasted in a chat.
 - FCM delivery-stats API (`fcmdata.googleapis.com`) needs its own API enabled and a role containing
   `fcmdata.deliverydata.list`; data arrives several days late with a 7-day window.
+
+**Later changes (this prompt describes the first build; the current panel differs in these ways)**
+- **Service account keys:** besides the central `FCM_SERVICE_ACCOUNT` secret, each app can have its own key uploaded in
+  the panel. It is validated with an FCM dry run and stored AES-256-GCM encrypted in `app_credentials` (RLS on, no
+  policies, service role only) using the `CREDENTIAL_ENCRYPTION_KEY` function secret, via the `app-credentials`
+  function. This replaces the rule above that a key must never be in the database: the browser still never sees it.
+- **Recurring sends** (`recurring_sends`, claimed by the same scheduler), **image link checker**, **typed confirmation
+  for sends to everyone**, **saved test devices** (browser only) and a **nightly cleanup** of finished notifications
+  older than 30 days (`purge_old_notifications`).
+- The Android brief (`web/src/android-guide.md`) now also loads images for foreground notifications and makes
+  `PushTopics` re-subscribe when the Firebase project changes.

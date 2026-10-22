@@ -33,12 +33,15 @@ Suggested order: (1) supabase/, (2) web/, (3) GitHub workflows, (4) README and A
    - Google Cloud Console -> APIs & Services -> Credentials -> create **OAuth client ID (Web application)**.
    - Authorized redirect URI: `https://<project-ref>.supabase.co/auth/v1/callback`
    - Supabase -> Authentication -> Providers -> Google: paste Client ID and Secret, enable it.
-3. **Service account key**:
-   - Firebase Console -> Project settings -> Service accounts -> **Generate new private key**.
-   - Save the JSON **outside the project folder** (e.g. `Documents`).
-4. **IAM role in every app's Firebase project**:
-   - Google Cloud Console -> IAM -> Grant access -> the service account email -> role **Firebase Cloud Messaging API Admin**.
-   - Make sure **Firebase Cloud Messaging API (V1)** is enabled in that project.
+3. **Service account key, once per app** (recommended):
+   - Firebase Console -> that app's project -> Project settings -> Service accounts -> **Generate new private key**.
+   - Save the JSON **outside the project folder** (e.g. `Documents`). You upload it in the panel when you add the app,
+     then delete the file. Never paste it into chat.
+   - Make sure **Firebase Cloud Messaging API (V1)** is enabled in that project (usually already on).
+4. **Central account (optional, only if you cannot create keys per app)**:
+   - Keep one key as the server secret `FCM_SERVICE_ACCOUNT` (Stage 3) and grant its email the role
+     **Firebase Cloud Messaging API Admin** in every app's project (Google Cloud Console -> IAM -> Grant access).
+   - Apps without an uploaded key use this account.
 
 ## Stage 3: Deploy Supabase (terminal)
 Claude can run these; you approve the login in the browser.
@@ -63,6 +66,13 @@ npx supabase secrets set CREDENTIAL_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 `CREDENTIAL_ENCRYPTION_KEY` encrypts the service account keys you upload per app in the panel. Keep a copy: if it
 changes, those keys must be uploaded again. With it set, adding a new app only needs that app's key file
 (Firebase -> Project settings -> Service accounts -> Generate new private key); no `gcloud` steps.
+
+**On Windows PowerShell** `openssl` does not exist, so the command above silently stores an empty value and uploads later
+fail with "CREDENTIAL_ENCRYPTION_KEY is missing or not a base64-encoded 32-byte key". Use this instead (it prints the
+key so you can save a copy):
+```powershell
+$b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); $k = [Convert]::ToBase64String($b); Write-Host "Save this key somewhere safe: $k"; npx supabase secrets set "CREDENTIAL_ENCRYPTION_KEY=$k"
+```
 
 Then in Supabase **SQL Editor**:
 1. Insert your email into the `admins` table (`supabase/manual/seed_admin.sql`).
@@ -112,6 +122,9 @@ Each app needs:
 8. Send twice with the same **replace key** (Delivery options): the second replaces the first.
 9. Save an audience (for example your country) and send to it.
 10. Try **Device local time** a few minutes ahead and open *View zones* in History.
+11. Choose **Repeat** (daily) a few minutes ahead, save it, and watch it appear in the app's *Recurring* tab and then in History.
+12. Paste an image link ending in `.gif`: the panel should warn under the image field.
+13. Send to **All users**: the dialog asks you to type the app name.
 
 ## Safety rules
 - Never paste or commit: **service account JSON**, **service role / `sb_secret_` key**, **Google client secret**, **`*.local.sql`**. The repo is public.
@@ -126,7 +139,13 @@ Each app needs:
 | Login redirects wrongly / fails | Supabase Site URL and Redirect URLs; Google OAuth redirect URI |
 | "Not authorized" after login | Your email is missing in `admins` (check spelling) |
 | Blank page on GitHub Pages | Vite `base` must be `/<repo>/`; check the Actions build log |
-| Send fails with 403 | Service account lacks **FCM Admin** role in that app's project, or FCM V1 API not enabled |
+| Send fails with 403 | The uploaded key is from a different project than the app, or **FCM V1 API** is not enabled there. Central-account apps: the account lacks the **Firebase Cloud Messaging API Admin** role in that project |
+| Key upload: "CREDENTIAL_ENCRYPTION_KEY is missing or not a base64-encoded 32-byte key" | The secret is empty or wrong (usually `openssl` was not available). Set it again with the PowerShell command in Stage 3 |
+| Notifications stopped after switching an app to another Firebase project | The app still remembers topics from the old project. Use the updated `PushTopics` from the guide, or reinstall the app / clear its data |
+| Image missing in the notification | Use a direct https JPG, PNG or WebP under 1 MB (GIFs do not animate). The panel warns under the image field. Foreground messages need the image code in `AppFirebaseMessagingService` |
+| Recurring send never runs | The `pg_cron` job is missing, or it predates recurring sends: run the current `supabase/manual/cron.sql` again (or `npx supabase db push`, which updates an existing job) |
+| Old notifications disappeared from History | Expected: finished notifications older than 30 days are deleted by a nightly job |
+| Analytics shows nothing for panel sends | Panel sends are API messages. They appear under Firebase -> Messaging -> **Reports**, grouped by the *Campaign label* (default one per day), and can take a day or more. They are not in the Campaigns list |
 | Send OK but nothing arrives | App not subscribed (`PushTopics.sync` missing or an old app version); notification permission off; wrong FCM project ID; new subscriptions can take a few minutes |
 | Audience / local-time send reaches nobody | Device runs an app version without `PushTopics`; topic names must match exactly (`country_IN`, `v_42`, `utc_p0530`) |
 | Scheduled notification not sent | The cron job is missing (`select * from cron.job;` is empty) or `CRON_SECRET` does not match; check `notifications.status` and `cron.job_run_details` |

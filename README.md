@@ -23,12 +23,13 @@ Supabase Auth + Postgres (RLS) + Storage + Edge Functions (Deno) + pg_cron
 
 | Area | What you get |
 |---|---|
-| Apps | Name, package, FCM project, icon URL, App URL (auto-detected Play Store link), channel, default topic, optional own service-account secret, link-domain allow-list |
-| Compose | Title/message with counters, link, image (paste a URL or upload to Storage), live Android preview, emoji picker, `{app_name}` `{date}` `{time}` `{day}` variables, truncation hints |
+| Apps | Name, package, icon URL, App URL (auto-detected Play Store link), channel, default topic, **service account key upload** (checked with Firebase, stored encrypted; the project ID fills in from it), link-domain allow-list. Advanced: a server secret name |
+| Compose | Title/message with counters, link, image (paste a URL or upload to Storage) with a **link checker**, live Android preview, emoji picker, `{app_name}` `{date}` `{time}` `{day}` variables, truncation hints |
 | Targets | All users, **Audience** (saved topics combined with AND/OR), custom topic, advanced condition, single device token |
-| Timing | Send now, schedule a date/time, or **device local time** (for example 9:00 AM on each phone) |
+| Timing | Send now, schedule a date/time, **device local time** (for example 9:00 AM on each phone), or **Repeat** (daily, weekly, monthly) |
 | Delivery options | Expiry (TTL), replace key (collapse key and tag), priority, campaign label. Every send is tagged with an FCM analytics label (`push_YYYYMMDD` by default) |
-| Workflow | Drafts, templates, duplicate/resend, cancel scheduled, history with search and pagination |
+| Safety | A send to a whole app asks you to type the app name, with an optional test to a saved device first; several named test devices per app (kept in your browser only) |
+| Workflow | Drafts, templates, duplicate/resend, cancel scheduled, recurring sends (pause/resume/delete), history with search and pagination. Finished History rows older than 30 days are deleted nightly |
 | Insight | Dashboard: sent in the last 7 days, success rate, scheduled, 7-day chart, recent activity |
 | Admin | Google login with an admin allow-list, theme (light default), apps export/import, Android guide for other apps |
 
@@ -99,6 +100,8 @@ npx supabase secrets set CRON_SECRET="<long random string, 32+ chars>"
 npx supabase secrets set ALLOWED_ORIGINS="https://<user>.github.io,http://localhost:5173"
 npx supabase secrets set CREDENTIAL_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 ```
+(On Windows PowerShell `openssl` does not exist and the command stores an empty value; use the PowerShell command in
+`Setup_Guide.md`, Stage 3.)
 `CREDENTIAL_ENCRYPTION_KEY` encrypts the per-app keys uploaded in the panel (see below). Generate it once and keep a
 copy somewhere safe: if it changes, stored keys can no longer be decrypted and must be uploaded again.
 
@@ -196,6 +199,15 @@ Function tests (needs Deno): `cd supabase/functions && deno test --no-lock _shar
   message replace the older one; normal priority saves battery; the campaign label groups FCM delivery stats.
 * **Drafts and templates**: *Save draft* keeps unfinished work (removed once sent); templates can use variables.
 * **Images**: paste an https URL or upload a JPG/PNG/WebP under 1 MB (stored in Supabase Storage, 1 GB free).
+  Under the field the panel warns about GIF/SVG links (GIFs do not animate in notifications), page links such as
+  `imgur.com/abc` instead of a direct image, links that do not load, and very large images. A browser cannot read the
+  file size of a third-party image, so the size warning is only a pixel-count estimate. If an image looks broken the
+  panel asks before sending.
+* **Recurring sends**: *When → Repeat* (see above). Manage them in the app's *Recurring* tab.
+* **Sending to everyone**: a send, schedule, local-time send or recurring send to the app's whole audience asks you to
+  type the app's name. If you saved a test device, the same dialog can send a test to it first.
+* **Test devices**: in *Send a test*, name a device token and **Save device** (up to 10 per app). They are stored in
+  this browser only, not on the server.
 
 ## Test checklist
 1. Sign in with Google. A non-listed account must see "Not authorized" and be signed out.
@@ -208,15 +220,24 @@ Function tests (needs Deno): `cd supabase/functions && deno test --no-lock _shar
 8. Audience: save *Country: <yours>*, send to it, confirm only matching devices receive it.
 9. **Device local time**: set a time a few minutes ahead for All users; open *View zones* in History.
 10. Save a draft, reuse a template, upload an image, export and re-import the apps JSON (no secrets inside).
+11. Add an app with its service account key file: Check connection must say *Connected*.
+12. Choose **Repeat** (daily) a few minutes ahead: it appears in the *Recurring* tab and then in History.
+13. Image link ending in `.gif`: a warning appears under the field. Send to **All users**: type the app name to confirm.
 
 ## Security notes
 * **Never commit:** the service account JSON, the Supabase `service_role` / `sb_secret_…` key, the Google OAuth
   client secret, `*.local.sql` files, `.env` files. `.gitignore` covers the usual names; check `git status` every time.
 * The browser only ever has the **anon key**. Every table has RLS that requires a verified email listed in `admins`.
   Storage uploads are admin-only (public read, so phones can fetch the image).
-* Both functions verify the caller's JWT and re-check `admins` on the server, re-validate link, image, target and
+* The functions verify the caller's JWT and re-check `admins` on the server, re-validate link, image, target and
   delivery options, and only read secrets named `FCM_SERVICE_ACCOUNT*`. The scheduler endpoint also requires the
   private `x-cron-secret`. Responses never contain secrets or access tokens.
+* **Uploaded service account keys are stored in the database, encrypted** (AES-256-GCM, bound to the app id) with the
+  master key `CREDENTIAL_ENCRYPTION_KEY`, which lives only in the Edge Function secrets. The table has no policies, so
+  browsers cannot read it, and the key is never sent back. A database dump alone is useless without the master key,
+  but someone with both database access and the function secrets could decrypt. Upload only keys you can revoke, and
+  delete or rotate a key in Google Cloud (IAM → Service accounts → Keys) if it may have leaked. Removing it in the
+  panel (*App settings → Remove key*) only deletes this panel's copy.
 * GitHub Pages cannot set HTTP headers, so the CSP is a `<meta>` tag in the production build. A meta CSP
   **cannot** enforce `frame-ancestors`, so the page could be framed by another site (clickjacking). Every action
   still needs your signed-in session and a confirmation click, which limits the risk. `noindex` and `robots.txt` are included.

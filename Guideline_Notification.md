@@ -86,6 +86,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -93,6 +95,8 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.example.app.MainActivity
 import com.example.app.R
+import java.net.HttpURLConnection
+import java.net.URL
 
 class AppFirebaseMessagingService : FirebaseMessagingService() {
 
@@ -115,17 +119,41 @@ class AppFirebaseMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(this, "app_updates_channel")
+        // Background messages get their image from FCM itself; in the foreground we load it here.
+        val picture = message.notification?.imageUrl?.toString()?.let { downloadImage(it) }
+
+        val builder = NotificationCompat.Builder(this, "app_updates_channel")
             .setSmallIcon(R.mipmap.ic_launcher) // better: a white monochrome icon
             .setContentTitle(title)
             .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setContentIntent(pending)
-            .build()
+        if (picture != null) {
+            builder.setLargeIcon(picture).setStyle(
+                NotificationCompat.BigPictureStyle().bigPicture(picture).bigLargeIcon(null as Bitmap?).setSummaryText(body)
+            )
+        } else {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(body))
+        }
 
         getSystemService(NotificationManager::class.java)
-            ?.notify(System.currentTimeMillis().toInt(), notification)
+            ?.notify(System.currentTimeMillis().toInt(), builder.build())
+    }
+
+    /** onMessageReceived runs on a background thread, so a short blocking download is fine. Null on any problem. */
+    private fun downloadImage(url: String): Bitmap? {
+        if (!url.startsWith("https://")) return null
+        return try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 5000
+            conn.readTimeout = 8000
+            conn.inputStream.use { input ->
+                val bytes = input.readBytes()
+                if (bytes.size > 2_000_000) null else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 }
 ```
@@ -251,6 +279,8 @@ Use an emulator image **with Google Play**, otherwise FCM won't work.
 | White square icon | Use a monochrome transparent icon and set `com.google.firebase.messaging.default_notification_icon` meta-data |
 | Conflict with another push SDK | Remove OneSignal/others, or only one SDK can own FCM |
 | Panel says "Sent" but the device gets nothing | The app never subscribed: check `PushTopics.sync()` runs, the device is online, and wait a few minutes after the first launch |
+| Notifications stopped after switching to another Firebase project | Topic subscriptions belong to one project. `PushTopics` above re-subscribes when the project changes; without that, reinstall the app or clear its data |
+| Image missing in the notification | Foreground: the service must load it (section 4). Background: the link must be a direct https JPG/PNG/WebP under 1 MB; on Samsung the picture shows only when the notification is expanded |
 | Audience send reaches nobody | The topic name in the panel must match exactly (`country_IN`, `v_42`, `tz_Asia_Kolkata`); install a build that includes `PushTopics` |
 
 ## 11. Audience topics (required for the Push Admin panel)
@@ -271,6 +301,7 @@ package com.example.app.notifications
 
 import android.content.Context
 import androidx.core.content.pm.PackageInfoCompat
+import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import java.util.Locale
 import java.util.TimeZone
@@ -282,6 +313,7 @@ object PushTopics {
 
     /** Call on every app start (e.g. Application.onCreate). Only changed topics are re-subscribed. */
     fun sync(context: Context) {
+        forgetCacheIfProjectChanged(context)
         FirebaseMessaging.getInstance().subscribeToTopic("all")
 
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -297,6 +329,17 @@ object PushTopics {
         val offsetMin = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60000
         val sign = if (offsetMin < 0) "m" else "p"
         swap(context, "offset", "utc_" + sign + "%02d%02d".format(abs(offsetMin) / 60, abs(offsetMin) % 60))
+    }
+
+    /**
+     * Topic subscriptions belong to one Firebase project. If google-services.json now points at another
+     * project, the remembered topics are stale, so forget them and subscribe again.
+     */
+    private fun forgetCacheIfProjectChanged(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val projectId = FirebaseApp.getInstance().options.projectId ?: return
+        if (prefs.getString("project_id", null) == projectId) return
+        prefs.edit().clear().putString("project_id", projectId).apply()
     }
 
     /** Subscribes to [topic]; leaves the topic previously stored for [slot] if it changed. */
@@ -339,7 +382,7 @@ Notes:
 - **Monochrome small icon** and separate channels (Updates / Offers).
 - **Analytics**: log a `notification_open` event inside `handle()`.
 - **Variables**: the panel replaces `{app_name}`, `{date}`, `{time}` and `{day}` before sending, so the app needs no code for them.
-- **Big image**: the panel can send an `image` URL (https). Android shows it automatically when the app is in the background; for foreground messages load it yourself and use `BigPictureStyle`.
+- **Big image**: the panel can send an `image` URL (https). Android shows it automatically when the app is in the background; the service in section 4 loads it for foreground messages (`BigPictureStyle`). Use a JPG, PNG or WebP under 1 MB. GIFs do not animate in notifications.
 
 ## 13. Security notes
 - Always validate the URL (scheme + host) before opening. Never open `intent:`, `file:`, `javascript:` or custom schemes from data.

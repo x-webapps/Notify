@@ -55,27 +55,33 @@ Temporary code, remove afterwards:
 ```kotlin
 FirebaseMessaging.getInstance().token.addOnSuccessListener { Log.d("FCM_TOKEN", it) }
 ```
-Copy the value from Logcat into the panel's *Test device token* field.
+Copy the value from Logcat into the panel's *Device token* field, give it a name (for example "My phone") and click
+**Save device**. Saved devices stay in your browser only. Before a send to everyone, the confirmation dialog can send a
+test to a saved device first.
 
-## 5. Service account access (one-time, per Firebase project)
-The panel sends through a service account, so for **every** app's Firebase project:
-1. Google Cloud Console → *IAM → Grant access* → add the service account's email → role **Firebase Cloud Messaging API Admin**.
-2. *APIs & Services → Library* → make sure **Firebase Cloud Messaging API (V1)** is enabled.
+## 5. Service account key (once per app, no `gcloud` needed)
+In this app's Firebase project: *Project settings → Service accounts → Generate new private key*. Keep the `.json`
+file outside the repo, and never paste it into chat or give it to an AI agent. You upload it in step 6; the panel
+checks it with Firebase and stores it encrypted. Delete the downloaded file afterwards.
 
-If you cannot create the service-account key because of the organization policy
-`iam.disableServiceAccountKeyCreation`, ask an organization admin to allow key creation for that project (or
-create the key in a project outside the organization), then continue as in the README.
+The key must come from the **same** Firebase project as this app's `google-services.json`, and
+*APIs & Services → Library → **Firebase Cloud Messaging API (V1)*** must be enabled (usually already on).
+
+If you cannot create keys because of the organization policy `iam.disableServiceAccountKeyCreation`, use the central
+account instead: grant the panel's service account the role **Firebase Cloud Messaging API Admin** in this app's project
+(see the README) and leave the key file empty in step 6.
 
 ## 6. Add the app in the panel
-**Apps → Add app**: name, package name, the Firebase **Project ID**, default topic `all`, channel ID, and
-optionally an icon URL and App URL (the Play Store link is detected from the package name when empty).
+**Apps → Add app**: name, package name, **Choose key file** (the Project ID fills in from the key), default topic
+`all`, channel ID, and optionally an icon URL and App URL (the Play Store link is detected from the package name when
+empty). On save the panel checks the key; then **App settings → Check connection** should say *Connected*.
 
 ## 7. Checklist per app
 - [ ] This app's own `google-services.json`; `firebase-messaging` and `core-ktx` dependencies
 - [ ] `PushTopics.kt` added and `PushTopics.sync(this)` called in `Application.onCreate()`
 - [ ] Channel ID matches the panel; `POST_NOTIFICATIONS` requested
 - [ ] `singleTop`, `handle()` in `onCreate` and `onNewIntent`
-- [ ] IAM role + FCM V1 API in this app's Firebase project
-- [ ] Panel: app added with the correct **FCM project ID**
+- [ ] Panel: app added with this project's **service account key** (Check connection says Connected)
+- [ ] Foreground image loading in `AppFirebaseMessagingService`, and `PushTopics` re-subscribing when the Firebase project changes (both are in the guide)
 - [ ] Tested: token test, All users, one audience, foreground, background, killed, invalid link
 - [ ] Update released (audiences and local-time sends need it)
