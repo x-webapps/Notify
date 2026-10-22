@@ -128,6 +128,13 @@ the app's *Recurring* tab, where you can pause, resume or delete them. They run 
 (section 6), so that job must exist. The migration `20260101000900` updates the job to also wake up for recurring
 sends; if you created it from an older `cron.sql`, run the current one again.
 
+### History cleanup
+The migration `20260101001000` schedules a nightly `pg_cron` job (03:17 UTC) that deletes **finished** notifications
+(sent, failed, cancelled) older than 30 days, so the table stays small however many apps send. Scheduled and
+sending rows are never touched, and a local-time send is removed together with its time zones only once it is
+finished. Uploaded images in the `notification-images` bucket are not deleted. To change the 30 days, edit the number
+in the `cron.schedule` call (minimum 7). To run it once by hand: `select public.purge_old_notifications(30);`
+
 ### 6. Scheduler (`pg_cron`): required for Schedule and Device local time
 Copy [`supabase/manual/cron.sql`](supabase/manual/cron.sql) to `supabase/manual/cron.local.sql`, replace the three
 placeholders (project URL, anon key, and the **same** `CRON_SECRET` as above) and run it once, either by pasting

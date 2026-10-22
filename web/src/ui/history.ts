@@ -30,7 +30,12 @@ export const renderHistory = (id: string) => async (view: HTMLElement): Promise<
   });
 
   clear(view);
-  view.append(appTabs(app, "history"), h("div", { class: "toolbar" }, search$), results);
+  view.append(
+    appTabs(app, "history"),
+    h("div", { class: "toolbar" }, search$),
+    h("p", { class: "muted small" }, "Finished notifications older than 30 days are deleted automatically to keep the panel fast."),
+    results,
+  );
 
   /** Per-time-zone detail of a local-time send. */
   const showZones = (n: NotificationRec, kids: LocalChild[]): void => {

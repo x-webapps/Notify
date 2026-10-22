@@ -149,6 +149,59 @@ export function confirmModal(opts: {
   });
 }
 
+/**
+ * Like confirmModal, but the confirm button stays disabled until `phrase` is typed (case-insensitive).
+ * `extra` adds a button that runs something (for example "send a test first") and keeps the dialog open.
+ */
+export function confirmTyped(opts: {
+  title: string;
+  message: Node;
+  phrase: string;
+  confirmLabel: string;
+  extra?: { label: string; onClick: () => Promise<void> };
+}): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (v: boolean): void => {
+      if (!settled) {
+        settled = true;
+        resolve(v);
+      }
+    };
+    const input = h("input", { type: "text", autocomplete: "off", spellcheck: "false", "aria-label": `Type ${opts.phrase} to confirm` });
+    const body = h("div", {}, opts.message, h("p", {}, "To confirm, type ", h("strong", {}, opts.phrase), " below."), input);
+    const buttons: ModalButton[] = [{ label: "Cancel", kind: "ghost", onClick: () => done(false) }];
+    const extra = opts.extra;
+    if (extra) {
+      buttons.push({ label: extra.label, kind: "ghost", onClick: async () => {
+        await extra.onClick();
+        return false; // stay open: the person still has to type the name
+      } });
+    }
+    buttons.push({ label: opts.confirmLabel, kind: "danger", onClick: () => done(true) });
+    showModal(opts.title, body, buttons);
+
+    const confirmBtn = [...document.querySelectorAll<HTMLButtonElement>(".overlay .modal-actions button")].pop();
+    const matches = (): boolean => input.value.trim().toLowerCase() === opts.phrase.trim().toLowerCase();
+    if (confirmBtn) confirmBtn.disabled = true;
+    input.addEventListener("input", () => {
+      if (confirmBtn) confirmBtn.disabled = !matches();
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (matches()) confirmBtn?.click();
+      }
+    });
+    const watcher = window.setInterval(() => {
+      if (!document.querySelector(".overlay")) {
+        window.clearInterval(watcher);
+        done(false);
+      }
+    }, 200);
+  });
+}
+
 // ---------------------------------------------------------------- form helpers
 export function field(
   label: string,

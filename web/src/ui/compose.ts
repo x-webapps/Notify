@@ -16,7 +16,9 @@ import {
 } from "../api";
 import { buildAudienceTarget, decodeAudience, encodeAudience, MAX_TOPICS_IN_CONDITION } from "../audience";
 import { offsetLabel, planLocalSends, targetForOffset, type BaseTarget, type PastPolicy } from "../localtime";
-import { append, clear, confirmModal, field, h, showModal, toast } from "../dom";
+import { append, clear, confirmModal, confirmTyped, field, h, showModal, toast } from "../dom";
+import { adviceFor, imageLinkWarning, probeImage, type ImageProbe } from "../imageCheck";
+import { loadDevices, removeDevice, saveDevices, upsertDevice, type StoreLike, type TestDevice } from "../testDevices";
 import type { AppRec, AudienceTopic, SendResult, TargetChoice, TargetType } from "../types";
 import {
   effectiveAppUrl,
@@ -241,18 +243,37 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
   );
   const when = h("input", { type: "datetime-local", value: toLocalInputValue(new Date(Date.now() + 3600_000)) });
   const testToken = h("input", { type: "text", autocomplete: "off", spellcheck: "false", placeholder: "Device token from Logcat" });
-  // The test token is kept in this browser only (localStorage, per app), so it survives reloads.
-  const tokenKey = `testToken:${app.id}`;
-  try {
-    testToken.value = localStorage.getItem(tokenKey) ?? "";
-  } catch { /* storage unavailable: the field simply starts empty */ }
-  testToken.addEventListener("input", () => {
+  // Test devices are kept in this browser only (localStorage, per app), by name, so they survive reloads.
+  const store = ((): StoreLike | undefined => {
     try {
-      const v = testToken.value.trim();
-      if (v) localStorage.setItem(tokenKey, v);
-      else localStorage.removeItem(tokenKey);
-    } catch { /* ignore */ }
-  });
+      return localStorage;
+    } catch {
+      return undefined;
+    }
+  })();
+  let devices = loadDevices(store, app.id);
+  const deviceName = h("input", { type: "text", maxlength: 30, autocomplete: "off", placeholder: "Name, e.g. My phone" });
+  const deviceSel = h("select", {});
+  const fSaved = field("Saved test devices", deviceSel);
+  const fDevName = field("Device name", deviceName);
+  const renderDevices = (selected = ""): void => {
+    clear(deviceSel);
+    deviceSel.append(h("option", { value: "" }, "Choose a saved device…"), ...devices.map((d) => h("option", { value: d.name }, d.name)));
+    deviceSel.value = devices.some((d) => d.name === selected) ? selected : "";
+    fSaved.wrap.hidden = devices.length === 0;
+  };
+  const fillFromSelection = (): void => {
+    const d = devices.find((x) => x.name === deviceSel.value);
+    if (d) {
+      deviceName.value = d.name;
+      testToken.value = d.token;
+    }
+  };
+  deviceSel.addEventListener("change", fillFromSelection);
+  renderDevices(devices[0]?.name);
+  fillFromSelection();
+  /** The device picked in the list, else the first saved one. */
+  const currentDevice = (): TestDevice | null => devices.find((d) => d.name === deviceSel.value) ?? devices[0] ?? null;
 
   const tCount = counter(LIMITS.title);
   const bCount = counter(LIMITS.body);
@@ -298,7 +319,9 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
   const fTarget = field("Target", targetSel);
   const fTargetValue = field("Target value", targetValue);
   const fWhen = field("Date and time", when, { hint: `Your local time zone: ${tz}` });
-  const fTest = field("Test device token", testToken);
+  const fTest = field("Device token", testToken);
+  const imageNote = h("div", { class: "hint", "aria-live": "polite" });
+  fImage.wrap.appendChild(imageNote);
 
   fTitle.wrap.querySelector("label")?.after(tCount.el);
   fBody.wrap.querySelector("label")?.after(bCount.el);
@@ -308,6 +331,8 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
   const result = resultBox();
   const sendBtn = h("button", { type: "button", class: "btn btn-primary btn-lg" }, "Send now");
   const testBtn = h("button", { type: "button", class: "btn btn-ghost" }, "Send test to token");
+  const saveDeviceBtn = h("button", { type: "button", class: "btn btn-ghost" }, "Save device");
+  const removeDeviceBtn = h("button", { type: "button", class: "btn btn-ghost" }, "Remove saved device");
   const draftBtn = h("button", { type: "button", class: "btn btn-ghost" }, "Save draft");
   const tplBtn = h("button", { type: "button", class: "btn btn-ghost" }, "Save as template");
 
@@ -383,7 +408,41 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     }
   };
 
+  // ---- image link check: link rules at once, then the browser tries to load it (cached per link)
+  let probed: { url: string; result: ImageProbe | null } = { url: "", result: null };
+  let probeTimer: number | undefined;
+  const updateImageAdvice = (): void => {
+    const u = image.value.trim();
+    const cached = probed.url === u ? probed.result : null;
+    const advice = validateImage(u) ? null : adviceFor(u, cached);
+    imageNote.textContent = advice?.note ?? "";
+    imageNote.className = `hint${advice?.problem ? " warn-hint" : ""}`;
+    if (!u || validateImage(u) || probed.url === u || imageLinkWarning(u)) return;
+    probed = { url: u, result: null };
+    window.clearTimeout(probeTimer);
+    probeTimer = window.setTimeout(async () => {
+      const result = await probeImage(u);
+      if (image.value.trim() !== u) return; // the link changed while loading
+      probed = { url: u, result };
+      updateImageAdvice();
+    }, 600);
+  };
+  /** A reason the image will probably not show, or null. Waits for the load check when it is still running. */
+  const imageProblem = async (u: string | null): Promise<string | null> => {
+    if (!u || validateImage(u)) return null;
+    const result = probed.url === u && probed.result ? probed.result : imageLinkWarning(u) ? null : await probeImage(u);
+    const advice = adviceFor(u, result);
+    return advice?.problem ? advice.note : null;
+  };
+  /** Asks before sending when the image looks broken. Returns false when the person backs out. */
+  const imageOk = async (p: ComposePayload): Promise<boolean> => {
+    const problem = await imageProblem(p.image_url);
+    if (!problem) return true;
+    return await confirmModal({ title: "The image may not show", message: `${problem} Send it anyway?`, confirmLabel: "Send anyway" });
+  };
+
   const refresh = (): void => {
+    updateImageAdvice();
     tCount.set(title.value.length);
     bCount.set(body.value.length);
     titleFit.textContent = title.value.length > TITLE_FIT ? `Over ~${TITLE_FIT} characters: may be cut off on a collapsed notification.` : "";
@@ -477,6 +536,37 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     draftId = null;
   };
 
+  // ---- sends to everyone ask for the app name; a test to a saved device can be sent first
+  const isEveryone = (p: { target_type: string; target_value: string }): boolean =>
+    p.target_type === "topic" && p.target_value === app.default_topic;
+
+  const sendTestTo = async (dev: TestDevice): Promise<void> => {
+    const p = payload({ type: "token", value: dev.token });
+    const errors = validate(p);
+    if (!optionsValid() || hasErrors(errors)) {
+      toast("Fix the highlighted fields first.", "error");
+      return;
+    }
+    try {
+      const r = await sendNow(p);
+      toast(r.ok ? `Test sent to ${dev.name}.` : `Test failed: ${r.error ?? "unknown error"}`, r.ok ? "success" : "error");
+    } catch (e) {
+      toast(errMsg(e), "error");
+    }
+  };
+
+  const confirmSend = (o: { title: string; message: Node; confirmLabel: string; everyone: boolean }): Promise<boolean> => {
+    if (!o.everyone) return confirmModal({ title: o.title, message: o.message, confirmLabel: o.confirmLabel });
+    const dev = currentDevice();
+    return confirmTyped({
+      title: o.title,
+      message: o.message,
+      phrase: app.name,
+      confirmLabel: o.confirmLabel,
+      extra: dev ? { label: `Send test to ${dev.name} first`, onClick: () => sendTestTo(dev) } : undefined,
+    });
+  };
+
   // ---- local-time sends: one scheduled send per UTC offset
   const baseTarget = (): BaseTarget | null => {
     switch (targetSel.value) {
@@ -518,13 +608,15 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     }
     const first = ready[0]!.send;
     const last = ready[ready.length - 1]!.send;
-    const ok = await confirmModal({
+    if (!(await imageOk(p))) return;
+    const ok = await confirmSend({
       title: "Schedule local-time send?",
       message: summary(
         p,
         `${localClock.value} on each device · ${ready.length} time zones · ${first.at.toLocaleString()} to ${last.at.toLocaleString()}${plan.skipped.length ? ` · ${plan.skipped.length} skipped (already passed)` : ""}`,
       ),
       confirmLabel: "Schedule",
+      everyone: targetSel.value === "default",
     });
     if (!ok) return;
     const count = await scheduleLocalTime({ base: p, localTime: localClock.value, plan: ready }, ctx.email);
@@ -551,10 +643,12 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
       toast("Fix the highlighted fields first.", "error");
       return;
     }
-    const ok = await confirmModal({
+    if (!(await imageOk(p))) return;
+    const ok = await confirmSend({
       title: "Save recurring send?",
       message: summary(p, describeSchedule(sched)),
       confirmLabel: "Save",
+      everyone: isEveryone(p),
     });
     if (!ok) return;
     await createRecurring({
@@ -604,11 +698,13 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
       return;
     }
     const wide = p.target_type !== "token";
+    if (!(await imageOk(p))) return;
     if (wide || isLater()) {
-      const ok = await confirmModal({
+      const ok = await confirmSend({
         title: isLater() ? "Schedule notification?" : "Send notification?",
         message: summary(p, whenDate ? `${whenDate.toLocaleString()} (${tz})` : undefined),
         confirmLabel: isLater() ? "Schedule" : "Send now",
+        everyone: isEveryone(p),
       });
       if (!ok) return;
     }
@@ -640,6 +736,29 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     result.show(r);
     toast(r.ok ? "Test sent." : "Test failed.", r.ok ? "success" : "error");
   }));
+
+  saveDeviceBtn.addEventListener("click", () => {
+    const r = upsertDevice(devices, deviceName.value, testToken.value);
+    fDevName.setError(r.error);
+    if (r.error) return;
+    devices = r.list;
+    saveDevices(store, app.id, devices);
+    renderDevices(deviceName.value.trim());
+    toast("Device saved.", "success");
+  });
+  removeDeviceBtn.addEventListener("click", () => {
+    const name = deviceSel.value;
+    if (!name) {
+      toast("Choose a saved device to remove.", "error");
+      return;
+    }
+    devices = removeDevice(devices, name);
+    saveDevices(store, app.id, devices);
+    renderDevices();
+    deviceName.value = "";
+    testToken.value = "";
+    toast("Device removed.", "success");
+  });
 
   draftBtn.addEventListener("click", async () => {
     const linkErr = validateLink(url.value, app.url_allowlist) ?? validateImage(image.value);
@@ -744,7 +863,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     result.el,
     h("hr", {}),
     h("h3", {}, "Send a test"),
-    h("p", { class: "muted" }, "Sends the content above to one device only. The token is saved in this browser for next time."),
+    h("p", { class: "muted" }, "Sends the content above to one device only. Save devices by name (for example “My phone”); they are kept in this browser only. Before a send to everyone you can send a test to your first or selected saved device."),
     h("details", { class: "guide-details" },
       h("summary", {}, "How to get the device token"),
       h("ol", { class: "steps" },
@@ -757,8 +876,10 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
       ),
       h("p", { class: "muted small" }, "Treat the token like a password: do not share it or commit it. It changes if the app is reinstalled or its data is cleared."),
     ),
+    fSaved.wrap,
+    fDevName.wrap,
     fTest.wrap,
-    testBtn,
+    h("div", { class: "row" }, testBtn, saveDeviceBtn, removeDeviceBtn),
   );
 
   refresh();
