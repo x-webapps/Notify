@@ -1,4 +1,5 @@
 import {
+  createRecurring,
   createTemplate,
   deleteDraft,
   getApp,
@@ -32,6 +33,8 @@ import {
   type DeliveryOptions,
   type FieldErrors,
 } from "../validate";
+import { describeSchedule, validateSchedule as validateRepeat, WEEKDAY_LABELS, WEEKDAY_ORDER, type Frequency, type Schedule } from "../recurring";
+import { go } from "../router";
 import { renderVariables } from "../variables";
 import { appTabs, errMsg, errorState, loading, type Ctx } from "./common";
 import { insertToolbar } from "./insert";
@@ -204,6 +207,38 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     h("div", { class: "local-rest" }, fPolicy.wrap, localSummary,
       h("p", { class: "hint" }, "Each device gets the notification at this wall-clock time. Needs the app to subscribe to its UTC-offset topic (PushTopics, see the Audience tab).")),
   );
+  // ---- repeat (recurring send): runs at a wall-clock time in one chosen time zone
+  const modeRepeat = h("input", { type: "radio", name: "mode", value: "repeat" });
+  const freqSel = h("select", {}, h("option", { value: "daily" }, "Every day"), h("option", { value: "weekly" }, "Every week"), h("option", { value: "monthly" }, "Every month"));
+  const repeatTime = h("input", { type: "time", value: "09:00" });
+  const dayChecks = WEEKDAY_ORDER.map((d) => ({ d, box: h("input", { type: "checkbox", value: String(d), checked: d === 1 }) }));
+  const domInput = h("input", { type: "number", min: 1, max: 31, value: "1" });
+  const zoneNames = ((): string[] => {
+    let all: string[] = [];
+    try {
+      all = Intl.supportedValuesOf("timeZone");
+    } catch { /* older browser: just the local zone */ }
+    return [...new Set([tz, "UTC", ...all])];
+  })();
+  const tzSel = h("select", {}, ...zoneNames.map((z) => h("option", { value: z }, z)));
+  tzSel.value = tz;
+  const endsOn = h("input", { type: "date" });
+  const fFreq = field("Repeat", freqSel);
+  const fRepeatTime = field("Time of day", repeatTime);
+  const fDays = field("On these days", h("div", { class: "check-grid" }, ...dayChecks.map(({ d, box }) => h("label", { class: "check" }, box, h("span", {}, WEEKDAY_LABELS[d])))));
+  const fDom = field("Day of the month", domInput, { hint: "For 29 to 31, months that are shorter send on their last day." });
+  const fTz = field("Time zone", tzSel, { hint: "The time of day above is in this zone and follows its daylight saving changes." });
+  const fEnds = field("Stop after (optional)", endsOn, { hint: "Last date it may send, in the zone above. Empty = repeat until you pause or delete it." });
+  const repeatBox = h(
+    "div",
+    { class: "options local-box" },
+    h("div", { class: "options-grid" }, fFreq.wrap, fRepeatTime.wrap),
+    fDays.wrap,
+    fDom.wrap,
+    fTz.wrap,
+    fEnds.wrap,
+    h("p", { class: "hint" }, "Each run is sent as a normal notification (see History). {date} and the other variables are filled in at send time."),
+  );
   const when = h("input", { type: "datetime-local", value: toLocalInputValue(new Date(Date.now() + 3600_000)) });
   const testToken = h("input", { type: "text", autocomplete: "off", spellcheck: "false", placeholder: "Device token from Logcat" });
   // The test token is kept in this browser only (localStorage, per app), so it survives reloads.
@@ -279,6 +314,18 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
   // ---- derived state
   const isLater = (): boolean => modeLater.checked;
   const isLocal = (): boolean => modeLocal.checked;
+  const isRepeat = (): boolean => modeRepeat.checked;
+  const schedule = (): Schedule => {
+    const f = freqSel.value as Frequency;
+    return {
+      frequency: f,
+      time_of_day: repeatTime.value,
+      tz: tzSel.value,
+      weekdays: f === "weekly" ? dayChecks.filter((c) => c.box.checked).map((c) => c.d) : [],
+      day_of_month: f === "monthly" ? Number(domInput.value) || null : null,
+      ends_on: endsOn.value || null,
+    };
+  };
   const selectedNames = (): string[] => audienceChecks.filter((c) => c.box.checked).map((c) => c.topic.name);
   const audienceMode = (): "all" | "any" => (modeAny.checked ? "any" : "all");
   const audienceTarget = (): { type: TargetType; value: string } | null => {
@@ -351,7 +398,10 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     audienceText.textContent = t ? (t.type === "topic" ? `Topic: ${t.value}` : t.value) : "Nothing selected";
     fWhen.wrap.hidden = !isLater();
     localBox.hidden = !isLocal();
-    sendBtn.textContent = isLocal() ? "Schedule local-time send" : isLater() ? "Schedule" : "Send now";
+    repeatBox.hidden = !isRepeat();
+    fDays.wrap.hidden = freqSel.value !== "weekly";
+    fDom.wrap.hidden = freqSel.value !== "monthly";
+    sendBtn.textContent = isRepeat() ? "Save recurring send" : isLocal() ? "Schedule local-time send" : isLater() ? "Schedule" : "Send now";
     if (isLocal()) {
       const plan = planLocalSends(localDate.value, localClock.value, policySel.value as PastPolicy);
       const first = plan.sends[0];
@@ -371,7 +421,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     fUrl.setError(validateLink(url.value, app.url_allowlist) ?? undefined);
     fImage.setError(validateImage(image.value) ?? undefined);
   };
-  const watched: HTMLElement[] = [title, body, url, image, targetSel, targetValue, modeNow, modeLater, modeLocal, localDate, localClock, policySel, modeAll, modeAny, ...audienceChecks.map((c) => c.box)];
+  const watched: HTMLElement[] = [title, body, url, image, targetSel, targetValue, modeNow, modeLater, modeLocal, modeRepeat, freqSel, localDate, localClock, policySel, modeAll, modeAny, ...audienceChecks.map((c) => c.box)];
   for (const el of watched) {
     el.addEventListener("input", refresh);
     el.addEventListener("change", refresh);
@@ -483,12 +533,60 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     await afterSent();
   };
 
+  // ---- recurring sends: saved as a schedule; the scheduler sends each run
+  const sendRecurring = async (p: ComposePayload, errors: FieldErrors): Promise<void> => {
+    if (targetSel.value === "token") {
+      fTargetValue.setError("A recurring send goes to All users, an Audience, a topic or a condition, not to one device.");
+      toast("Choose All users, an Audience, a topic or a condition for a recurring send.", "error");
+      return;
+    }
+    const sched = schedule();
+    const se = validateRepeat(sched, toLocalInputValue(new Date()).slice(0, 10));
+    fRepeatTime.setError(se.time_of_day);
+    fDays.setError(se.weekdays);
+    fDom.setError(se.day_of_month);
+    fEnds.setError(se.ends_on);
+    const audienceBad = targetSel.value === "audience" && (selectedNames().length === 0 || selectedNames().length > MAX_TOPICS_IN_CONDITION);
+    if (!optionsValid() || hasErrors(errors) || audienceBad || Object.values(se).some(Boolean)) {
+      toast("Fix the highlighted fields first.", "error");
+      return;
+    }
+    const ok = await confirmModal({
+      title: "Save recurring send?",
+      message: summary(p, describeSchedule(sched)),
+      confirmLabel: "Save",
+    });
+    if (!ok) return;
+    await createRecurring({
+      app_id: app.id,
+      title: p.title,
+      body: p.body,
+      url: p.url,
+      image_url: p.image_url,
+      target_type: p.target_type === "condition" ? "condition" : "topic",
+      target_value: p.target_value,
+      ttl_seconds: p.ttl_seconds,
+      collapse_key: p.collapse_key,
+      priority: p.priority,
+      analytics_label: p.analytics_label,
+      ...sched,
+      created_by: ctx.email,
+    });
+    toast("Recurring send saved.", "success");
+    await afterSent();
+    go(`/apps/${app.id}/recurring`);
+  };
+
   // ---- actions
   sendBtn.addEventListener("click", () => void run(async () => {
     result.hide();
     const p = payload();
     const errors = validate(p);
     showErrors(errors, true);
+    if (isRepeat()) {
+      await sendRecurring(p, errors);
+      return;
+    }
     if (isLocal()) {
       await sendLocal(p, errors);
       return;
@@ -637,9 +735,11 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
       h("label", { class: "radio" }, modeNow, " Send now"),
       h("label", { class: "radio" }, modeLater, " Schedule"),
       h("label", { class: "radio" }, modeLocal, " Device local time"),
+      h("label", { class: "radio" }, modeRepeat, " Repeat"),
     ),
     fWhen.wrap,
     localBox,
+    repeatBox,
     h("div", { class: "row" }, sendBtn, draftBtn, tplBtn, resetBtn),
     result.el,
     h("hr", {}),

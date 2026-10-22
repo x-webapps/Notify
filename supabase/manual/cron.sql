@@ -30,6 +30,9 @@ select cron.schedule(
     select 1 from public.notifications
     where (status = 'scheduled' and scheduled_at <= now() and kind <> 'local_parent')
        or (status = 'sending' and claimed_at < now() - interval '15 minutes')
+  )
+  or exists (
+    select 1 from public.recurring_sends where active and next_run_at <= now()
   );
   $job$
 );

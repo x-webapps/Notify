@@ -12,6 +12,8 @@ import type {
   DraftRec,
   AppRec,
   NotificationRec,
+  RecurringInput,
+  RecurringRec,
   SendResult,
   TargetType,
   TemplateInput,
@@ -196,6 +198,31 @@ export async function deleteNotification(id: string): Promise<void> {
   if (error) fail(error);
 }
 
+// ------------------------------------------------------------------ recurring sends
+export async function listRecurring(appId: string): Promise<RecurringRec[]> {
+  const { data, error } = await supabase.from("recurring_sends").select("*").eq("app_id", appId)
+    .order("created_at", { ascending: false });
+  if (error) fail(error);
+  return (data ?? []) as RecurringRec[];
+}
+
+export async function createRecurring(input: RecurringInput): Promise<void> {
+  const { error } = await supabase.from("recurring_sends").insert(input);
+  if (error) fail(error);
+}
+
+/** Pausing clears the next run; resuming works it out again (a database trigger does both). */
+export async function setRecurringActive(id: string, active: boolean): Promise<RecurringRec> {
+  const { data, error } = await supabase.from("recurring_sends").update({ active }).eq("id", id).select().single();
+  if (error) fail(error);
+  return data as RecurringRec;
+}
+
+export async function deleteRecurring(id: string): Promise<void> {
+  const { error } = await supabase.from("recurring_sends").delete().eq("id", id);
+  if (error) fail(error);
+}
+
 // ------------------------------------------------------------------ sending (Edge Function)
 const SEND_TIMEOUT_MS = 30_000;
 
@@ -374,8 +401,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     supabase.from("notifications").select("*").neq("kind", "local_child").order("created_at", { ascending: false }).limit(8),
     supabase.from("notifications").select("status,created_at").neq("kind", "local_child").in("status", ["sent", "failed"])
       .gte("created_at", start.toISOString()).limit(5000),
-    supabase.from("notifications").select("id", { count: "exact", head: true }).neq("kind", "local_child").eq("status", "scheduled"),
-  ]);
+    supabase.from("notifications").select("id", { count: "exact", head: true }).neq("kind", "local_child").eq("status", "scheduled"),  ]);
   if (recent.error) fail(recent.error);
   if (week.error) fail(week.error);
   const days = bucketByDay((week.data ?? []) as { status: string; created_at: string }[], lastDays(7));
@@ -383,8 +409,7 @@ export async function loadDashboard(): Promise<DashboardData> {
     apps,
     days,
     sent7: days.reduce((n, d) => n + d.sent, 0),
-    failed7: days.reduce((n, d) => n + d.failed, 0),
-    scheduled: scheduled.count ?? 0,
+    failed7: days.reduce((n, d) => n + d.failed, 0),    scheduled: scheduled.count ?? 0,
     recent: (recent.data ?? []) as NotificationRec[],
   };
 }

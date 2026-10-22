@@ -46,6 +46,7 @@ export const KOTLIN_SNIPPET = `package com.example.app.notifications
 
 import android.content.Context
 import androidx.core.content.pm.PackageInfoCompat
+import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import java.util.Locale
 import java.util.TimeZone
@@ -57,6 +58,7 @@ object PushTopics {
 
     /** Call on every app start (e.g. Application.onCreate). Only changed topics are re-subscribed. */
     fun sync(context: Context) {
+        forgetCacheIfProjectChanged(context)
         FirebaseMessaging.getInstance().subscribeToTopic("all")
 
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -72,6 +74,17 @@ object PushTopics {
         val offsetMin = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60000
         val sign = if (offsetMin < 0) "m" else "p"
         swap(context, "offset", "utc_" + sign + "%02d%02d".format(abs(offsetMin) / 60, abs(offsetMin) % 60))
+    }
+
+    /**
+     * Topic subscriptions belong to one Firebase project. If google-services.json now points at another
+     * project, the remembered topics are stale, so forget them and subscribe again.
+     */
+    private fun forgetCacheIfProjectChanged(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val projectId = FirebaseApp.getInstance().options.projectId ?: return
+        if (prefs.getString("project_id", null) == projectId) return
+        prefs.edit().clear().putString("project_id", projectId).apply()
     }
 
     /** Subscribes to [topic]; leaves the topic previously stored for [slot] if it changed. */

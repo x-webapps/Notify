@@ -14,6 +14,7 @@ import { renderCompose } from "./ui/compose";
 import { errorState, type Screen } from "./ui/common";
 import { renderHistory } from "./ui/history";
 import { renderLogin } from "./ui/login";
+import { renderRecurring } from "./ui/recurring";
 import { renderSettings } from "./ui/settings";
 import { renderTemplates } from "./ui/templates";
 
@@ -35,6 +36,7 @@ function screenFor(hash: string): Screen {
     case "compose": return renderCompose(r.id, r.query);
     case "history": return renderHistory(r.id);
     case "templates": return renderTemplates(r.id);
+    case "recurring": return renderRecurring(r.id);
     case "settings": return renderSettings;
     default:
       return (view) => {

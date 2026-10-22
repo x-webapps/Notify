@@ -1,3 +1,4 @@
+import type { Frequency } from "./recurring";
 import type { TargetType } from "./validate";
 
 export type { TargetType };
@@ -46,8 +47,38 @@ export interface NotificationRec {
   parent_id: string | null;
   local_offset_min: number | null;
   local_time: string | null;
+  recurring_id: string | null;
   created_at: string;
 }
+
+export interface RecurringRec {
+  id: string;
+  app_id: string;
+  title: string;
+  body: string;
+  url: string | null;
+  image_url: string | null;
+  target_type: "topic" | "condition";
+  target_value: string;
+  ttl_seconds: number | null;
+  collapse_key: string | null;
+  priority: "high" | "normal";
+  analytics_label: string | null;
+  frequency: Frequency;
+  time_of_day: string;
+  tz: string;
+  weekdays: number[];
+  day_of_month: number | null;
+  ends_on: string | null;
+  active: boolean;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  run_count: number;
+  created_by: string | null;
+  created_at: string;
+}
+
+export type RecurringInput = Omit<RecurringRec, "id" | "active" | "next_run_at" | "last_run_at" | "run_count" | "created_at">;
 
 export interface TemplateRec {
   id: string;

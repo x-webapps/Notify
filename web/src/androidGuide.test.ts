@@ -23,8 +23,9 @@ describe("android guide", () => {
       "onNewIntent",
       "PushTopics.sync(this)",
       "google-services.json",
-      "Cloud Messaging API Admin",
-      "roles/firebasecloudmessaging.admin",
+      "service account key",
+      "BigPictureStyle",
+      "forgetCacheIfProjectChanged",
     ]) {
       expect(text, needle).toContain(needle);
     }

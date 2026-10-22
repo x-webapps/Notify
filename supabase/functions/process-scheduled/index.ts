@@ -2,6 +2,7 @@
 import { isValidCronSecret } from "../_shared/auth.ts";
 import { deliver } from "../_shared/deliver.ts";
 import { json, serviceClient } from "../_shared/http.ts";
+import { runDueRecurring } from "../_shared/recurring.ts";
 import type { NotificationRow } from "../_shared/types.ts";
 
 const BATCH_SIZE = 20;
@@ -27,7 +28,9 @@ Deno.serve(async (req) => {
       if (result.ok) sent++;
       else failed++;
     }
-    return json(req, { claimed: rows.length, sent, failed });
+    // Recurring schedules that are due become normal notifications and are sent right away.
+    const recurring = await runDueRecurring(db);
+    return json(req, { claimed: rows.length, sent, failed, recurring });
   } catch (_e) {
     return json(req, { error: "Unexpected server error." }, 500);
   }

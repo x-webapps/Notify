@@ -7,6 +7,7 @@ export type Route =
   | { name: "history"; id: string }
   | { name: "templates"; id: string }
   | { name: "audience"; id: string }
+  | { name: "recurring"; id: string }
   | { name: "settings" }
   | { name: "not-found" };
 
@@ -29,6 +30,7 @@ export function parseHash(hash: string): Route {
       if (parts.length === 3 && parts[2] === "history") return { name: "history", id };
       if (parts.length === 3 && parts[2] === "templates") return { name: "templates", id };
       if (parts.length === 3 && parts[2] === "audience") return { name: "audience", id };
+      if (parts.length === 3 && parts[2] === "recurring") return { name: "recurring", id };
     }
   }
   return { name: "not-found" };

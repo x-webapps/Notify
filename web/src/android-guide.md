@@ -101,6 +101,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -108,6 +110,8 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.example.app.MainActivity
 import com.example.app.R
+import java.net.HttpURLConnection
+import java.net.URL
 
 class AppFirebaseMessagingService : FirebaseMessagingService() {
 
@@ -130,17 +134,41 @@ class AppFirebaseMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(this, "app_updates_channel")
+        // Background messages get their image from FCM itself; in the foreground we load it here.
+        val picture = message.notification?.imageUrl?.toString()?.let { downloadImage(it) }
+
+        val builder = NotificationCompat.Builder(this, "app_updates_channel")
             .setSmallIcon(R.mipmap.ic_launcher) // better: a white monochrome icon
             .setContentTitle(title)
             .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setContentIntent(pending)
-            .build()
+        if (picture != null) {
+            builder.setLargeIcon(picture).setStyle(
+                NotificationCompat.BigPictureStyle().bigPicture(picture).bigLargeIcon(null as Bitmap?).setSummaryText(body)
+            )
+        } else {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(body))
+        }
 
         getSystemService(NotificationManager::class.java)
-            ?.notify(System.currentTimeMillis().toInt(), notification)
+            ?.notify(System.currentTimeMillis().toInt(), builder.build())
+    }
+
+    /** onMessageReceived runs on a background thread, so a short blocking download is fine. Null on any problem. */
+    private fun downloadImage(url: String): Bitmap? {
+        if (!url.startsWith("https://")) return null
+        return try {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            conn.connectTimeout = 5000
+            conn.readTimeout = 8000
+            conn.inputStream.use { input ->
+                val bytes = input.readBytes()
+                if (bytes.size > 2_000_000) null else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 }
 ```
@@ -239,19 +267,12 @@ The country comes from the device region setting (not GPS).
 
 ## Manual steps for the human (list these in your final report)
 - Add this app's own `google-services.json` to `app/` (Firebase Console, Project settings, Your apps).
-- In the Push Admin panel: Apps, Add app. Enter the package name, the Firebase **Project ID** of this app,
+- In the Push Admin panel: Apps, Add app. Enter the package name,
   Default topic `all` and the same Channel ID as above.
-- Server side, once per Firebase project: in this app's Firebase project (Google Cloud Console, IAM, Grant access)
-  give the panel's service account the **Firebase Cloud Messaging API Admin** role (not the older "Firebase Cloud
-  Messaging Admin", which cannot send V1 messages) and make sure "Firebase Cloud Messaging API (V1)" is enabled.
-  The service account email is shown in the panel under App settings, Check connection ("Service account used").
-  Pick the panel's account, not this project's own `firebase-adminsdk` account. Terminal alternative, logged in as
-  a project Owner: `gcloud projects add-iam-policy-binding PROJECT_ID --member="serviceAccount:SERVICE_ACCOUNT_EMAIL"
-  --role="roles/firebasecloudmessaging.admin"`. Keep the `serviceAccount:` prefix. Before that, check `gcloud auth list`;
-  if no Owner account is listed, run `gcloud auth login` (and `gcloud config set account OWNER_EMAIL` if several are
-  listed). Verify with `gcloud projects get-iam-policy PROJECT_ID --flatten="bindings[].members"
-  --filter="bindings.members:SERVICE_ACCOUNT_EMAIL" --format="value(bindings.role)"`.
-  Wait 1-2 minutes, then click Check connection until it says Connected.
+- In the panel's app settings, upload this Firebase project's **service account key** (Firebase Console, Project
+  settings, Service accounts, Generate new private key; choose the downloaded .json file). The panel checks it with
+  Firebase and stores it encrypted. No role setup is needed: Firebase's own `firebase-adminsdk` account can already
+  send. Do not paste the key into chat, commit it, or give it to an AI agent.
 - Run a debug build on a device or emulator with Google Play services, open the app once, then use the
   panel's "Send test to token" (token from Logcat via a temporary
   `FirebaseMessaging.getInstance().token.addOnSuccessListener { Log.d("FCM_TOKEN", it) }`, removed afterwards).

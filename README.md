@@ -122,6 +122,12 @@ npx supabase functions deploy app-credentials
 JWT verification stays **on** for all three (never pass `--no-verify-jwt`). Redeploy after any change in
 `supabase/functions/`.
 
+### Recurring sends
+In Compose choose *When → Repeat* (daily, weekly or monthly at a time in a chosen time zone). Schedules live under
+the app's *Recurring* tab, where you can pause, resume or delete them. They run from the same every-minute scheduler
+(section 6), so that job must exist. The migration `20260101000900` updates the job to also wake up for recurring
+sends; if you created it from an older `cron.sql`, run the current one again.
+
 ### 6. Scheduler (`pg_cron`): required for Schedule and Device local time
 Copy [`supabase/manual/cron.sql`](supabase/manual/cron.sql) to `supabase/manual/cron.local.sql`, replace the three
 placeholders (project URL, anon key, and the **same** `CRON_SECRET` as above) and run it once, either by pasting

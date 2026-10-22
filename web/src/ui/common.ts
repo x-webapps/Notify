@@ -51,7 +51,7 @@ export function link(href: string, text: string, cls = ""): HTMLAnchorElement {
   return h("a", { href, class: cls }, text);
 }
 
-export function appTabs(app: AppRec, active: "compose" | "history" | "templates" | "audience" | "edit"): HTMLElement {
+export function appTabs(app: AppRec, active: "compose" | "history" | "recurring" | "templates" | "audience" | "edit"): HTMLElement {
   const tab = (key: typeof active, path: string, label: string): HTMLElement =>
     h("a", { href: `#/apps/${app.id}${path}`, class: `tab${key === active ? " active" : ""}`, "aria-current": key === active ? "page" : null }, label);
   return h(
@@ -75,6 +75,7 @@ export function appTabs(app: AppRec, active: "compose" | "history" | "templates"
       { class: "tabs", "aria-label": `${app.name} sections` },
       tab("compose", "", "Compose"),
       tab("history", "/history", "History"),
+      tab("recurring", "/recurring", "Recurring"),
       tab("templates", "/templates", "Drafts & templates"),
       tab("audience", "/audience", "Audience"),
       tab("edit", "/edit", "App settings"),
