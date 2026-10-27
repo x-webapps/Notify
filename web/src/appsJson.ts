@@ -49,7 +49,7 @@ export function parseAppsImport(text: string): AppInput[] {
     if (!name) throw new Error(`${where}: name is missing.`);
     if (!pkg) throw new Error(`${where}: package_name is missing.`);
     if (!project || !FCM_PROJECT_RE.test(project)) throw new Error(`${where}: fcm_project_id is invalid.`);
-    const topic = str(o.default_topic, 255) ?? "all";
+    const topic = str(o.default_topic, 255) ?? pkg;
     if (!isValidTopic(topic)) throw new Error(`${where}: default_topic is invalid.`);
     const secret = o.secret_key == null || o.secret_key === "" ? null : String(o.secret_key);
     if (secret && !SECRET_NAME_RE.test(secret)) throw new Error(`${where}: secret_key must look like FCM_SERVICE_ACCOUNT_NAME.`);

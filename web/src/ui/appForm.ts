@@ -12,7 +12,7 @@ export function buildForm(existing: AppRec | null): HTMLElement {
   const project = h("input", { type: "text", required: true, value: existing?.fcm_project_id ?? "", placeholder: "my-app-12345", autocapitalize: "off", spellcheck: "false" });
   const icon = h("input", { type: "text", inputmode: "url", value: existing?.icon_url ?? "", placeholder: "https://…/icon.png", spellcheck: "false", autocomplete: "off" });
   const appUrl = h("input", { type: "text", inputmode: "url", value: existing?.app_url ?? "", spellcheck: "false", autocomplete: "off" });
-  const topic = h("input", { type: "text", value: existing?.default_topic ?? "all" });
+  const topic = h("input", { type: "text", value: existing?.default_topic ?? "", placeholder: "com.example.app", autocapitalize: "off", spellcheck: "false" });
   const channel = h("input", { type: "text", maxlength: 100, value: existing?.channel_id ?? "app_updates_channel" });
   const secret = h("input", { type: "text", value: existing?.secret_key ?? "", placeholder: "FCM_SERVICE_ACCOUNT_MYAPP", autocapitalize: "characters", spellcheck: "false" });
   const allow = h("textarea", { rows: 3, placeholder: "example.com\nmy-site.io" }, (existing?.url_allowlist ?? []).join("\n"));
@@ -87,7 +87,11 @@ export function buildForm(existing: AppRec | null): HTMLElement {
   };
   for (const el of [name, pkg, icon]) el.addEventListener("input", syncAuto);
   syncAuto();
-  const fTopic = field("Default topic", topic, { hint: "The topic every user subscribes to. Use the app’s package name." });
+  // A new app's topic follows the package name until it is edited by hand.
+  let topicEdited = !!existing;
+  topic.addEventListener("input", () => { topicEdited = true; });
+  pkg.addEventListener("input", () => { if (!topicEdited) topic.value = pkg.value.trim(); });
+  const fTopic = field("Default topic", topic, { hint: "The topic every user subscribes to. Filled from the package name; the app must subscribe to the same name." });
   const fChannel = field("Notification channel ID", channel, { hint: "Must match the channel created in the Android app." });
   const fSecret = field("Server secret name (advanced, optional)", secret, {
     hint: "Only used when no key file is uploaded. Leave empty to use the central FCM_SERVICE_ACCOUNT. Only the secret NAME goes here, never the key itself.",
@@ -131,7 +135,7 @@ export function buildForm(existing: AppRec | null): HTMLElement {
       name: name.value.trim(),
       package_name: pkg.value.trim(),
       fcm_project_id: project.value.trim(),
-      default_topic: topic.value.trim() || "all",
+      default_topic: topic.value.trim() || pkg.value.trim(),
       channel_id: channel.value.trim() || "app_updates_channel",
       secret_key: secret.value.trim() || null,
       url_allowlist: parseDomainList(allow.value),
