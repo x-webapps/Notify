@@ -9,8 +9,16 @@ export interface Ctx {
 
 export type Screen = (view: HTMLElement, ctx: Ctx) => void | Promise<void>;
 
-export function loading(text = "Loading…"): HTMLElement {
-  return h("p", { class: "muted loading", role: "status" }, text);
+/** Skeleton placeholder; pass text only for a specific wait message (e.g. a connection check). */
+export function loading(text?: string): HTMLElement {
+  if (text) return h("p", { class: "muted loading", role: "status" }, text);
+  const bar = (cls: string): HTMLElement => h("div", { class: `skel ${cls}` });
+  return h(
+    "div",
+    { class: "skeleton", role: "status", "aria-label": "Loading" },
+    bar("skel-title"),
+    ...[0, 1, 2].map(() => h("div", { class: "skel-card" }, bar("skel-line w60"), bar("skel-line"), bar("skel-line w80"))),
+  );
 }
 
 export function errorState(view: HTMLElement, message: string, retry?: () => void): void {
@@ -57,7 +65,6 @@ export function appTabs(app: AppRec, active: "compose" | "history" | "recurring"
   return h(
     "header",
     { class: "app-header" },
-    h("div", { class: "crumbs" }, h("a", { href: "#/apps" }, "Apps"), " / ", app.name),
     h(
       "div",
       { class: "app-title" },

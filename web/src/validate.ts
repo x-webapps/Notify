@@ -153,11 +153,11 @@ export interface DeliveryOptions {
   analytics_label: string | null;
 }
 
-export const DEFAULT_DELIVERY: DeliveryOptions = { ttl_seconds: null, collapse_key: null, priority: "high", analytics_label: null };
+export const DEFAULT_DELIVERY: DeliveryOptions = { ttl_seconds: 259_200, collapse_key: null, priority: "high", analytics_label: null };
 
 /** Expiry choices shown in the composer (null = FCM default, 4 weeks). */
 export const TTL_PRESETS: { label: string; value: number | null }[] = [
-  { label: "Default (4 weeks)", value: null },
+  { label: "4 weeks (FCM default)", value: null },
   { label: "Only if online right now", value: 0 },
   { label: "1 hour", value: 3600 },
   { label: "6 hours", value: 21_600 },

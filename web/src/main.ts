@@ -2,7 +2,6 @@ import "./styles.css";
 import "./styles-features.css";
 import { resolveAuth, type AuthState } from "./auth";
 import { clear, h } from "./dom";
-import { icon } from "./icons";
 import { parseHash } from "./router";
 import { configError, supabase } from "./supabase";
 import { applyStoredTheme } from "./theme";
@@ -16,6 +15,7 @@ import { renderHistory } from "./ui/history";
 import { renderLogin } from "./ui/login";
 import { renderRecurring } from "./ui/recurring";
 import { renderSettings } from "./ui/settings";
+import { buildShell, type Shell } from "./ui/shell";
 import { renderTemplates } from "./ui/templates";
 
 applyStoredTheme();
@@ -45,41 +45,26 @@ function screenFor(hash: string): Screen {
   }
 }
 
+let shell: Shell | null = null;
+
 async function render(): Promise<void> {
   if (!root) return;
   if (auth.status !== "admin") {
+    shell = null;
     renderLogin(root, auth.notice);
     return;
   }
   const email = auth.email;
   const hash = window.location.hash;
-  const route = parseHash(hash);
-  const view = h("main", { class: "view", id: "main", tabindex: "-1" });
-
-  const navLink = (href: string, label: string, active: boolean): HTMLElement =>
-    h("a", { href, class: `nav-link${active ? " active" : ""}`, "aria-current": active ? "page" : null }, label);
-
-  clear(root);
-  root.append(
-    h("a", { href: "#main", class: "skip", onclick: (e: Event) => {
-      e.preventDefault(); // "#main" would otherwise be read as a route
-      view.focus();
-    } }, "Skip to content"),
-    h(
-      "header",
-      { class: "topbar" },
-      h("a", { href: "#/", class: "brand" }, h("span", { class: "brand-mark", "aria-hidden": "true" }, icon("bell", 16)), "Push Admin"),
-      h(
-        "nav",
-        { "aria-label": "Main" },
-        navLink("#/", "Dashboard", route.name === "dashboard"),
-        navLink("#/apps", "Apps", route.name !== "settings" && route.name !== "dashboard"),
-        navLink("#/settings", "Settings", route.name === "settings"),
-      ),
-      h("span", { class: "user muted" }, email),
-    ),
-    view,
-  );
+  // The shell is built once so the sidebar keeps its search text and scroll position between pages.
+  if (!shell) {
+    shell = buildShell(email);
+    clear(root);
+    root.appendChild(shell.el);
+  }
+  const { view } = shell;
+  clear(view);
+  shell.update(parseHash(hash));
   try {
     await screenFor(hash)(view, { email });
   } catch {

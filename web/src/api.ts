@@ -90,6 +90,23 @@ export async function listNotifications(appId: string, page: number, search: str
   return { rows: (data ?? []) as NotificationRec[], total: count ?? 0 };
 }
 
+/** Newest sends across all apps, without repeats of the same title and message (recurring sends repeat). */
+export async function listRecentNotifications(limit: number): Promise<NotificationRec[]> {
+  const { data, error } = await supabase.from("notifications").select("*").neq("kind", "local_child")
+    .order("created_at", { ascending: false }).limit(limit * 3);
+  if (error) fail(error);
+  const seen = new Set<string>();
+  const out: NotificationRec[] = [];
+  for (const n of (data ?? []) as NotificationRec[]) {
+    const key = `${n.title}\u0000${n.body}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(n);
+    if (out.length === limit) break;
+  }
+  return out;
+}
+
 export async function getNotification(id: string): Promise<NotificationRec> {
   const { data, error } = await supabase.from("notifications").select("*").eq("id", id).maybeSingle();
   if (error) fail(error);

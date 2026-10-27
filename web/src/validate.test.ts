@@ -119,7 +119,8 @@ describe("delivery options", () => {
     expect(validateDelivery({ ...DEFAULT_DELIVERY, ttl_seconds: 3_000_000 }).ttl_seconds).toBeDefined();
     expect(validateDelivery({ ...DEFAULT_DELIVERY, collapse_key: "no spaces" }).collapse_key).toBeDefined();
     expect(validateDelivery({ ...DEFAULT_DELIVERY, analytics_label: "x".repeat(51) }).analytics_label).toBeDefined();
-    expect(describeDelivery(DEFAULT_DELIVERY)).toBe("");
+    expect(describeDelivery(DEFAULT_DELIVERY)).toBe("expires in 3 days");
+    expect(describeDelivery({ ...DEFAULT_DELIVERY, ttl_seconds: null })).toBe("");
     expect(describeDelivery({ ttl_seconds: 3600, collapse_key: "score", priority: "normal" })).toBe("expires in 1 hour · replace key score · normal priority");
   });
 });

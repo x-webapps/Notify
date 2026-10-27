@@ -7,6 +7,10 @@ import {
   getNotification,
   getTemplate,
   listAudience,
+  listDrafts,
+  listApps,
+  listRecentNotifications,
+  listTemplates,
   saveDraft,
   scheduleLocalTime,
   scheduleNotification,
@@ -39,8 +43,10 @@ import { describeSchedule, validateSchedule as validateRepeat, WEEKDAY_LABELS, W
 import { go } from "../router";
 import { renderVariables } from "../variables";
 import { appTabs, errMsg, errorState, loading, type Ctx } from "./common";
-import { insertToolbar } from "./insert";
+import { insertAtCaret, insertToolbar } from "./insert";
 import { createPreview } from "./preview";
+import { icon } from "../icons";
+import { quickStart, type Content, type QuickData } from "./quickstart";
 
 const COOLDOWN_MS = 3000;
 const TITLE_FIT = 40; // roughly what a collapsed Android title shows
@@ -57,6 +63,7 @@ export interface Prefill {
 }
 
 export interface ComposeExtras {
+  quick: QuickData;
   topics: AudienceTopic[];
   draftId: string | null;
 }
@@ -99,6 +106,36 @@ function resultBox(): { el: HTMLElement; show: (r: SendResult | { error: string 
       }
     },
   };
+}
+
+function group(label: string, ...children: Node[]): HTMLElement {
+  return h("div", { class: "group" }, label ? h("h3", { class: "group-label" }, label) : null, ...children);
+}
+
+/** Wraps a text field with a paste-from-clipboard button. Title and message insert at the caret; link and image replace. */
+function withPaste(el: HTMLInputElement | HTMLTextAreaElement, mode: "insert" | "replace"): void {
+  const btn = h("button", { type: "button", class: "paste-btn", title: "Paste from clipboard", "aria-label": "Paste from clipboard" }, icon("clipboard", 16));
+  btn.addEventListener("click", async () => {
+    try {
+      const text = (await navigator.clipboard.readText()).trim();
+      if (!text) {
+        toast("The clipboard is empty.", "info");
+        return;
+      }
+      if (mode === "insert") {
+        insertAtCaret(el, text);
+      } else {
+        el.value = text;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      el.focus();
+    } catch {
+      toast("Clipboard access was blocked. Paste with Ctrl+V instead.", "error");
+    }
+  });
+  const wrap = h("div", { class: `paste-wrap${el instanceof HTMLTextAreaElement ? " paste-area" : ""}` });
+  el.replaceWith(wrap);
+  wrap.append(el, btn);
 }
 
 export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: ComposeExtras): HTMLElement {
@@ -178,7 +215,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     h("summary", {}, "Delivery options"),
     h("div", { class: "options-grid" }, fTtl.wrap, fPrio.wrap, fCollapse.wrap, fCampaign.wrap),
   );
-  if (describeDelivery(d0)) options.setAttribute("open", "");
+  if (JSON.stringify(d0) !== JSON.stringify(DEFAULT_DELIVERY)) options.setAttribute("open", "");
   /** Shows option errors (opening the section) and returns true when all are valid. */
   const optionsValid = (): boolean => {
     const e = validateDelivery(delivery());
@@ -285,7 +322,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
   const bodyFit = h("div", { class: "hint warn-hint" });
   title.after(titleFit);
   body.after(bodyFit);
-  const fUrl = field("Link URL (optional)", url, { hint: "Opens in the browser when the notification is tapped. Sent as data key “url”." });
+  const fUrl = field("Link", url);
   const useAppLink = h("button", { type: "button", class: "btn btn-ghost btn-sm link-chip" }, "Use app page link");
   useAppLink.addEventListener("click", () => {
     url.value = effectiveAppUrl(app);
@@ -293,7 +330,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
   });
   fUrl.wrap.querySelector("label")?.after(useAppLink);
 
-  const fImage = field("Image (optional)", image, { hint: "Paste an https link, or upload a JPG/PNG/WebP under 1 MB." });
+  const fImage = field("Image", image);
   const fileInput = h("input", { type: "file", accept: "image/jpeg,image/png,image/webp", class: "visually-hidden", tabindex: "-1", "aria-label": "Upload image file" });
   const uploadBtn = h("button", { type: "button", class: "btn btn-ghost btn-sm link-chip" }, "Upload image");
   uploadBtn.addEventListener("click", () => fileInput.click());
@@ -327,6 +364,10 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
   fBody.wrap.querySelector("label")?.after(bCount.el);
 
   const toolbar = insertToolbar([title, body]);
+  withPaste(title, "insert");
+  withPaste(body, "insert");
+  withPaste(url, "replace");
+  withPaste(image, "replace");
 
   const result = resultBox();
   const sendBtn = h("button", { type: "button", class: "btn btn-primary btn-lg" }, "Send now");
@@ -441,8 +482,45 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     return await confirmModal({ title: "The image may not show", message: `${problem} Send it anyway?`, confirmLabel: "Send anyway" });
   };
 
+  // ---- one-line summary above the buttons
+  const sumLine = h("p", { class: "sum-line" });
+  const paintSummary = (): void => {
+    const c = targetSel.value;
+    const to = c === "default" ? `All users of ${app.name}`
+      : c === "audience" ? targetLabelFor() || "No audience picked"
+      : c === "token" ? "One device"
+      : `${c === "topic" ? "Topic" : "Condition"} “${targetValue.value.trim() || "…"}”`;
+    const at = isRepeat() ? (() => {
+      try {
+        return describeSchedule(schedule());
+      } catch {
+        return "Repeating";
+      }
+    })()
+      : isLocal() ? `${localClock.value || "…"} on each device`
+      : isLater() ? (when.value ? new Date(when.value).toLocaleString() : "pick a date") : "now";
+    sumLine.textContent = `${to} · ${at}`;
+  };
+
+  /** Fills the content fields from a template or past send; returns an undo for the previous text. */
+  const applyContent = (c: Content): (() => void) => {
+    const before = { t: title.value, b: body.value, u: url.value, i: image.value };
+    const set = (t: string, b: string, u: string, i: string): void => {
+      title.value = t.slice(0, LIMITS.title);
+      body.value = b.slice(0, LIMITS.body);
+      url.value = u;
+      image.value = i;
+      showErrors({}, false);
+      refresh();
+    };
+    set(c.title, c.body, c.url ?? "", c.image_url ?? "");
+    title.focus();
+    return () => set(before.t, before.b, before.u, before.i);
+  };
+
   const refresh = (): void => {
     updateImageAdvice();
+    paintSummary();
     tCount.set(title.value.length);
     bCount.set(body.value.length);
     titleFit.textContent = title.value.length > TITLE_FIT ? `Over ~${TITLE_FIT} characters: may be cut off on a collapsed notification.` : "";
@@ -480,7 +558,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     fUrl.setError(validateLink(url.value, app.url_allowlist) ?? undefined);
     fImage.setError(validateImage(image.value) ?? undefined);
   };
-  const watched: HTMLElement[] = [title, body, url, image, targetSel, targetValue, modeNow, modeLater, modeLocal, modeRepeat, freqSel, localDate, localClock, policySel, modeAll, modeAny, ...audienceChecks.map((c) => c.box)];
+  const watched: HTMLElement[] = [when, ttlSel, prioSel, collapseKey, campaign, repeatTime, tzSel, domInput, endsOn, ...dayChecks.map((c) => c.box), title, body, url, image, targetSel, targetValue, modeNow, modeLater, modeLocal, modeRepeat, freqSel, localDate, localClock, policySel, modeAll, modeAny, ...audienceChecks.map((c) => c.box)];
   for (const el of watched) {
     el.addEventListener("input", refresh);
     el.addEventListener("change", refresh);
@@ -824,7 +902,7 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     for (const el of [title, body, url, image, targetValue]) el.value = "";
     for (const c of audienceChecks) c.box.checked = false;
     targetSel.value = "default";
-    ttlSel.value = "";
+    ttlSel.value = String(DEFAULT_DELIVERY.ttl_seconds);
     prioSel.value = "high";
     collapseKey.value = "";
     campaign.value = "";
@@ -835,35 +913,12 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     refresh();
   } }, "Clear");
 
-  const form = h(
-    "form",
-    { class: "card form", novalidate: true, onsubmit: (e: Event) => e.preventDefault() },
-    toolbar,
-    fTitle.wrap,
-    fBody.wrap,
-    fUrl.wrap,
-    fImage.wrap,
-    fTarget.wrap,
-    fTargetValue.wrap,
-    fAudience.wrap,
-    options,
-    h(
-      "fieldset",
-      { class: "mode" },
-      h("legend", {}, "When"),
-      h("label", { class: "radio" }, modeNow, " Send now"),
-      h("label", { class: "radio" }, modeLater, " Schedule"),
-      h("label", { class: "radio" }, modeLocal, " Device local time"),
-      h("label", { class: "radio" }, modeRepeat, " Repeat"),
-    ),
-    fWhen.wrap,
-    localBox,
-    repeatBox,
-    h("div", { class: "row" }, sendBtn, draftBtn, tplBtn, resetBtn),
-    result.el,
-    h("hr", {}),
-    h("h3", {}, "Send a test"),
-    h("p", { class: "muted" }, "Sends the content above to one device only. Save devices by name (for example “My phone”); they are kept in this browser only. Before a send to everyone you can send a test to your first or selected saved device."),
+  const quick = quickStart(app, extras.quick, applyContent, (id) => go(`/apps/${app.id}?draft=${id}`));
+  const testBox = h(
+    "details",
+    { class: "more" },
+    h("summary", {}, "Send a test to a device"),
+    h("p", { class: "muted small" }, "Sends the content above to one device only. Saved devices stay in this browser."),
     h("details", { class: "guide-details" },
       h("summary", {}, "How to get the device token"),
       h("ol", { class: "steps" },
@@ -881,9 +936,33 @@ export function buildComposer(app: AppRec, ctx: Ctx, prefill: Prefill, extras: C
     fTest.wrap,
     h("div", { class: "row" }, testBtn, saveDeviceBtn, removeDeviceBtn),
   );
+  const form = h(
+    "form",
+    { class: "card form compose-main", novalidate: true, onsubmit: (e: Event) => e.preventDefault() },
+    group("", toolbar, fTitle.wrap, fBody.wrap, fUrl.wrap, fImage.wrap),
+    group("Audience", fTarget.wrap, fTargetValue.wrap, fAudience.wrap),
+    group(
+      "When",
+      h(
+        "fieldset",
+        { class: "mode" },
+        h("legend", { class: "visually-hidden" }, "When"),
+        h("label", { class: "radio" }, modeNow, " Now"),
+        h("label", { class: "radio" }, modeLater, " Schedule"),
+        h("label", { class: "radio" }, modeLocal, " Local time"),
+        h("label", { class: "radio" }, modeRepeat, " Repeat"),
+      ),
+      fWhen.wrap,
+      localBox,
+      repeatBox,
+      options,
+    ),
+    testBox,
+    h("div", { class: "action-bar" }, result.el, sumLine, h("div", { class: "row" }, sendBtn, draftBtn, tplBtn, resetBtn)),
+  );
 
   refresh();
-  return h("div", { class: "compose" }, form, preview.el);
+  return h("div", { class: "compose" }, form, h("aside", { class: "compose-side" }, preview.el, quick));
 }
 
 const TOKEN_SNIPPET =
@@ -893,7 +972,14 @@ const TOKEN_ADB = "adb logcat -s FCM_TOKEN";
 export const renderCompose = (id: string, query: URLSearchParams) => async (view: HTMLElement, ctx: Ctx): Promise<void> => {
   view.appendChild(loading());
   try {
-    const [app, topics] = await Promise.all([getApp(id), listAudience(id)]);
+    const [app, topics, templates, drafts, recent, apps] = await Promise.all([
+      getApp(id),
+      listAudience(id),
+      listTemplates(id).catch(() => []),
+      listDrafts(id).catch(() => []),
+      listRecentNotifications(20).catch(() => []),
+      listApps().catch(() => []),
+    ]);
     const prefill: Prefill = {};
     let draftId: string | null = null;
     const templateId = query.get("template");
@@ -922,7 +1008,7 @@ export const renderCompose = (id: string, query: URLSearchParams) => async (view
       });
     }
     clear(view);
-    view.append(appTabs(app, "compose"), buildComposer(app, ctx, prefill, { topics, draftId }));
+    view.append(appTabs(app, "compose"), buildComposer(app, ctx, prefill, { quick: { templates, recent, drafts, apps }, topics, draftId }));
   } catch (e) {
     errorState(view, errMsg(e));
   }
