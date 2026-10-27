@@ -87,7 +87,7 @@ export function buildForm(existing: AppRec | null): HTMLElement {
   };
   for (const el of [name, pkg, icon]) el.addEventListener("input", syncAuto);
   syncAuto();
-  const fTopic = field("Default topic", topic, { hint: "The topic every user subscribes to (usually “all”)." });
+  const fTopic = field("Default topic", topic, { hint: "The topic every user subscribes to. Use the app’s package name." });
   const fChannel = field("Notification channel ID", channel, { hint: "Must match the channel created in the Android app." });
   const fSecret = field("Server secret name (advanced, optional)", secret, {
     hint: "Only used when no key file is uploaded. Leave empty to use the central FCM_SERVICE_ACCOUNT. Only the secret NAME goes here, never the key itself.",

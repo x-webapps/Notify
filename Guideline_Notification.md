@@ -289,7 +289,7 @@ Topic names are fixed; the panel's **Audience** tab uses exactly these:
 
 | Topic | Meaning | Example |
 |---|---|---|
-| `all` | Every user (the panel's default target) | `all` |
+| `<package name>` | Every user of this app (the panel's default target). Use the package name, not `all`: topics belong to the Firebase project, so a shared name would also reach your other apps in it | `com.example.app` |
 | `v_<versionCode>` | Installed app version | `v_42` |
 | `country_<ISO>` | Country from the device region setting | `country_IN` |
 | `tz_<Zone_Name>` | Device time zone (`/` becomes `_`) | `tz_Asia_Kolkata` |
@@ -314,7 +314,8 @@ object PushTopics {
     /** Call on every app start (e.g. Application.onCreate). Only changed topics are re-subscribed. */
     fun sync(context: Context) {
         forgetCacheIfProjectChanged(context)
-        FirebaseMessaging.getInstance().subscribeToTopic("all")
+        // Package name = the app's Default topic in the panel (topics are shared by every app in a Firebase project)
+        FirebaseMessaging.getInstance().subscribeToTopic(context.packageName)
 
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         val version = PackageInfoCompat.getLongVersionCode(info)
@@ -400,4 +401,4 @@ Notes:
 - [ ] `PushTopics.kt` added and `PushTopics.sync(this)` called in `Application.onCreate()`
 - [ ] Panel: app added with the correct **FCM project ID**; audiences saved in the Audience tab
 - [ ] Tested: foreground, background, killed, invalid URL
-- [ ] Tested: send to `all`, then to one audience (e.g. `country_IN`) and confirm only matching devices receive it
+- [ ] Tested: send to the default topic (package name), then to one audience (e.g. `country_IN`) and confirm only matching devices receive it

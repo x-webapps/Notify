@@ -27,7 +27,7 @@ It subscribes the device to:
 
 | Topic | Used for |
 |---|---|
-| `all` | "All users" (must equal the app's *Default topic* in the panel) |
+| `<package name>` | "All users" (must equal the app's *Default topic* in the panel). Not `all`: topics are shared by every app in a Firebase project, so a package-name topic keeps your apps apart |
 | `v_<versionCode>` | Audience: app version |
 | `country_<ISO>` | Audience: country (from the phone's region setting, not GPS) |
 | `tz_<Zone_Name>` | Audience: time zone, for example `tz_Asia_Kolkata` |
@@ -38,7 +38,8 @@ nothing is saved in your database. Then save the audiences you want to target in
 Language is intentionally not used.
 
 Audiences and local-time sends only reach users on an app version that includes `PushTopics`. Release an update.
-Old versions that only subscribed to `all` still receive normal "All users" sends.
+Switching an existing app from `all` to the package name: keep subscribing to `all` too and leave the panel's Default
+topic on `all` until most users have updated, then change it.
 
 ## 3. Channel, permission and link
 * Create a notification channel whose ID equals the app's **Channel ID** in the panel (default `app_updates_channel`),
@@ -73,7 +74,7 @@ account instead: grant the panel's service account the role **Firebase Cloud Mes
 
 ## 6. Add the app in the panel
 **Apps → Add app**: name, package name, **Choose key file** (the Project ID fills in from the key), default topic
-`all`, channel ID, and optionally an icon URL and App URL (the Play Store link is detected from the package name when
+(the app's package name), channel ID, and optionally an icon URL and App URL (the Play Store link is detected from the package name when
 empty). On save the panel checks the key; then **App settings → Check connection** should say *Connected*.
 
 ## 7. Checklist per app

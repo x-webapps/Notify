@@ -10,7 +10,7 @@ name), then make the changes. Prefer small, focused edits that match the project
 - Message shape: `notification { title, body, image? }`, data key `url` (optional), and
   `android.notification.channel_id`. The default channel id is `app_updates_channel`.
 - Tapping a notification must open the `url` in the browser (only http/https links).
-- Audiences are topics the app subscribes to itself: `all`, `v_<versionCode>`, `country_<ISO>`,
+- Audiences are topics the app subscribes to itself: the app's package name (all users of this app; never `all`, topics are shared by every app in the Firebase project), `v_<versionCode>`, `country_<ISO>`,
   `tz_<Zone_Name>` and `utc_<p|m>HHMM` (UTC offset, used for "send at 9:00 AM device local time").
   The topic names are a contract with the panel: do not rename them.
 
@@ -268,7 +268,7 @@ The country comes from the device region setting (not GPS).
 ## Manual steps for the human (list these in your final report)
 - Add this app's own `google-services.json` to `app/` (Firebase Console, Project settings, Your apps).
 - In the Push Admin panel: Apps, Add app. Enter the package name,
-  Default topic `all` and the same Channel ID as above.
+  Default topic = the package name and the same Channel ID as above.
 - In the panel's app settings, upload this Firebase project's **service account key** (Firebase Console, Project
   settings, Service accounts, Generate new private key; choose the downloaded .json file). The panel checks it with
   Firebase and stores it encrypted. No role setup is needed: Firebase's own `firebase-adminsdk` account can already

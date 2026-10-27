@@ -59,7 +59,8 @@ object PushTopics {
     /** Call on every app start (e.g. Application.onCreate). Only changed topics are re-subscribed. */
     fun sync(context: Context) {
         forgetCacheIfProjectChanged(context)
-        FirebaseMessaging.getInstance().subscribeToTopic("all")
+        // Package name = the app's Default topic in the panel (topics are shared by every app in a Firebase project)
+        FirebaseMessaging.getInstance().subscribeToTopic(context.packageName)
 
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         val version = PackageInfoCompat.getLongVersionCode(info)

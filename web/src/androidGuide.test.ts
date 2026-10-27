@@ -32,7 +32,7 @@ describe("android guide", () => {
   });
 
   it("uses the same topic names the panel targets", () => {
-    for (const topic of ["all", "v_", "country_", "tz_", "utc_"]) expect(text).toContain(topic);
+    for (const topic of ["context.packageName", "v_", "country_", "tz_", "utc_"]) expect(text).toContain(topic);
     // the Kotlin offset formatting must produce what offsetTopic() expects, e.g. utc_p0530
     expect(offsetTopic(OFFSETS_MIN[0] ?? 0)).toMatch(/^utc_[pm]\d{4}$/);
   });
