@@ -1,36 +1,42 @@
-# Guideline: Open a URL from a Firebase (FCM) Notification
+# Push Admin support for an Android app
 
-Send a notification from Firebase Console with a custom `url`; tapping it opens that link in the browser.
-Works when the app is in the **foreground, background, and killed** state. No app update needed per link.
+What the app needs so the Push Admin panel can reach it: tapping a notification opens its `url`, the image shows, and
+audiences work. Works when the app is in the foreground, background or killed.
 
-Package/namespace used below: `com.example.app`. Replace with your own.
+Replace `com.example.app` with your package name.
+
+## Checklist (tick every box before release)
+
+**App**
+- [ ] `firebase-messaging` dependency and the app's own `google-services.json`
+- [ ] No other push SDK (OneSignal etc.)
+- [ ] `NotificationLinkHandler.kt`, `AppFirebaseMessagingService.kt`, `PushTopics.kt` copied; package names fixed
+- [ ] Manifest: service, default channel meta-data, `POST_NOTIFICATIONS`, `launchMode="singleTop"` on the launcher activity
+- [ ] Channel `app_updates_channel` created and `PushTopics.sync(this)` called in `Application.onCreate()`
+- [ ] Launcher activity calls `NotificationLinkHandler.handle()` in both `onCreate` and `onNewIntent`
+- [ ] Android 13+ notification permission requested
+- [ ] Subscribes to the **package name** topic, not `all` (topics are shared by every app in a Firebase project)
+
+**Panel**
+- [ ] Apps, Add app: package name, service account key uploaded, **Default topic = package name**, channel `app_updates_channel`
+- [ ] App settings, Check connection says *Connected*
+
+**Test on a device** (use a build that has all of the above)
+- [ ] Foreground, background and killed: notification arrives, tap opens the link
+- [ ] Image shows in foreground and background
+- [ ] Invalid `url` (`javascript:alert(1)`) opens nothing
+- [ ] A send to this app does not reach your other apps in the same Firebase project
 
 ---
 
-## 1. Prerequisites
-- App is connected to Firebase (`google-services.json` in `app/`, Google Services plugin applied).
-- Do **not** use OneSignal or another push SDK at the same time (they conflict over FCM).
-
-## 2. Dependency
-
-`gradle/libs.versions.toml`
-```toml
-firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
-```
-
-`app/build.gradle` (Firebase BoM must already be present)
+## 1. Dependency
+`app/build.gradle` (Firebase BoM must already be present):
 ```groovy
 implementation platform(libs.firebase.bom)
-implementation(libs.firebase.messaging)
+implementation libs.firebase.messaging
 ```
 
-Without a version catalog:
-```groovy
-implementation platform("com.google.firebase:firebase-bom:34.17.0")
-implementation "com.google.firebase:firebase-messaging"
-```
-
-## 3. Link handler
+## 2. Link handler
 `notifications/NotificationLinkHandler.kt`
 ```kotlin
 package com.example.app.notifications
@@ -54,9 +60,7 @@ object NotificationLinkHandler {
             return
         }
         try {
-            context.startActivity(
-                Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
+            context.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         } catch (e: ActivityNotFoundException) {
             Log.w(TAG, "No app can open $uri", e)
         }
@@ -73,9 +77,9 @@ object NotificationLinkHandler {
 }
 ```
 
-## 4. Messaging service (foreground messages)
-FCM shows notifications itself when the app is in the background/killed.
-This service is only called in the **foreground**, so we build the notification ourselves.
+## 3. Messaging service
+FCM shows the notification itself in the background. This service only runs in the **foreground**, so it builds the
+notification, with the `url` and the image.
 
 `notifications/AppFirebaseMessagingService.kt`
 ```kotlin
@@ -114,15 +118,15 @@ class AppFirebaseMessagingService : FirebaseMessagingService() {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             if (url != null) putExtra(NotificationLinkHandler.EXTRA_URL, url)
         }
+        // Unique request code so each notification keeps its own url.
         val pending = PendingIntent.getActivity(
             this, System.currentTimeMillis().toInt(), intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Background messages get their image from FCM itself; in the foreground we load it here.
         val picture = message.notification?.imageUrl?.toString()?.let { downloadImage(it) }
 
-        val builder = NotificationCompat.Builder(this, "app_updates_channel")
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher) // better: a white monochrome icon
             .setContentTitle(title)
             .setContentText(body)
@@ -135,12 +139,11 @@ class AppFirebaseMessagingService : FirebaseMessagingService() {
         } else {
             builder.setStyle(NotificationCompat.BigTextStyle().bigText(body))
         }
-
         getSystemService(NotificationManager::class.java)
             ?.notify(System.currentTimeMillis().toInt(), builder.build())
     }
 
-    /** onMessageReceived runs on a background thread, so a short blocking download is fine. Null on any problem. */
+    /** Runs on a background thread, so a short blocking download is fine. Null on any problem. */
     private fun downloadImage(url: String): Bitmap? {
         if (!url.startsWith("https://")) return null
         return try {
@@ -155,15 +158,18 @@ class AppFirebaseMessagingService : FirebaseMessagingService() {
             null
         }
     }
+
+    companion object {
+        /** Must match the panel's Channel ID and the manifest meta-data. */
+        const val CHANNEL_ID = "app_updates_channel"
+    }
 }
 ```
 
-## 5. AndroidManifest.xml
+## 4. Manifest
 Inside `<application>`:
 ```xml
-<service
-    android:name=".notifications.AppFirebaseMessagingService"
-    android:exported="false">
+<service android:name=".notifications.AppFirebaseMessagingService" android:exported="false">
     <intent-filter>
         <action android:name="com.google.firebase.MESSAGING_EVENT" />
     </intent-filter>
@@ -172,128 +178,63 @@ Inside `<application>`:
 <meta-data
     android:name="com.google.firebase.messaging.default_notification_channel_id"
     android:value="app_updates_channel" />
-```
 
-On your launcher activity add `launchMode="singleTop"`:
-```xml
-<activity
-    android:name=".MainActivity"
-    android:exported="true"
-    android:launchMode="singleTop">
+<activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
     ...
 </activity>
 ```
-
-Permission (if not already present):
+Top level:
 ```xml
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 ```
+Without `singleTop`, a tap while the app is in the background opens the app but loses the link.
 
-## 6. Notification channel
-In your `Application.onCreate()` (or any startup place):
+## 5. Channel, topics and launcher activity
+`Application.onCreate()`:
 ```kotlin
-if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-    getSystemService(NotificationManager::class.java)?.createNotificationChannel(
-        NotificationChannel(
-            "app_updates_channel",
-            "Updates & Announcements",
-            NotificationManager.IMPORTANCE_DEFAULT
+override fun onCreate() {
+    super.onCreate()
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        getSystemService(NotificationManager::class.java)?.createNotificationChannel(
+            NotificationChannel("app_updates_channel", "Updates & Announcements", NotificationManager.IMPORTANCE_DEFAULT)
         )
-    )
-}
-```
-The channel ID must match the one in the manifest meta-data and the service.
-
-## 7. Launcher Activity
-```kotlin
-class MainActivity : ComponentActivity() {
-
-    private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
-        // App opened from a notification tap (background / killed)
-        NotificationLinkHandler.handle(this, intent)
-
-        // Android 13+ notification permission
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-        // setContent { ... }
     }
-
-    // App already open (foreground / singleTop) and notification tapped
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        NotificationLinkHandler.handle(this, intent)
-    }
+    PushTopics.sync(this)
 }
 ```
 
-## 8. Send from the Push Admin panel (or Firebase Console)
-The Push Admin panel sends the same message format (`notification` + data key `url`, channel `app_updates_channel`), so no extra app code is needed beyond sections 3 to 7 and the topics in section 11.
-
-To send from the Firebase Console instead:
-1. **Messaging → New campaign → Firebase Notification messages**
-2. Fill title and text.
-3. **Additional options → Custom data**
-   - Key: `url`
-   - Value: `https://example.com`
-4. Target the app (or a topic / test device) and publish.
-
-Key must be exactly `url` (lowercase).
-
-## 9. Testing
-Get a device token (temporary, remove after):
+Launcher activity:
 ```kotlin
-FirebaseMessaging.getInstance().token.addOnSuccessListener { Log.d("FCM_TOKEN", it) }
+override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
+    NotificationLinkHandler.handle(this, intent) // opened from a tap (background / killed)
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+    ) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+}
+
+override fun onNewIntent(intent: Intent) { // already open, notification tapped
+    super.onNewIntent(intent)
+    setIntent(intent)
+    NotificationLinkHandler.handle(this, intent)
+}
 ```
-Console → **Send test message** → paste token.
+`notificationPermissionLauncher` is `registerForActivityResult(ActivityResultContracts.RequestPermission()) { }`.
 
-| Case | Steps | Expected |
-|---|---|---|
-| Foreground | Keep app open, send | Notification appears, tap opens link |
-| Background | Press Home, send, tap | App opens, then link opens |
-| Killed | Swipe away from recents, send, tap | Same |
-| Invalid | `url` = `javascript:alert(1)` or `file:///x` | Nothing opens; Logcat `NotificationLink` shows "Ignored invalid url" |
+## 6. Topics
+The panel sends to **topics**, not device tokens, so the app subscribes on every launch. These names are fixed:
 
-Without Firebase, tap handling only:
-```bash
-adb shell am start -n com.example.app/.MainActivity -e url https://example.com
-```
-
-Use an emulator image **with Google Play**, otherwise FCM won't work.
-
-## 10. Troubleshooting
-| Problem | Check |
+| Topic | Meaning |
 |---|---|
-| Nothing arrives | Notifications enabled for the app; `google-services.json` package matches `applicationId`; device has internet and Play Services |
-| Arrives but link doesn't open | Custom data key is exactly `url`; value starts with `https://`; `handle()` is called in both `onCreate` and `onNewIntent` |
-| Link opens twice | Make sure `removeExtra` is kept in the handler |
-| Works only in foreground | `launchMode="singleTop"` missing, or the data key is wrong |
-| White square icon | Use a monochrome transparent icon and set `com.google.firebase.messaging.default_notification_icon` meta-data |
-| Conflict with another push SDK | Remove OneSignal/others, or only one SDK can own FCM |
-| Panel says "Sent" but the device gets nothing | The app never subscribed: check `PushTopics.sync()` runs, the device is online, and wait a few minutes after the first launch |
-| Notifications stopped after switching to another Firebase project | Topic subscriptions belong to one project. `PushTopics` above re-subscribes when the project changes; without that, reinstall the app or clear its data |
-| Image missing in the notification | Foreground: the service must load it (section 4). Background: the link must be a direct https JPG/PNG/WebP under 1 MB; on Samsung the picture shows only when the notification is expanded |
-| Audience send reaches nobody | The topic name in the panel must match exactly (`country_IN`, `v_42`, `tz_Asia_Kolkata`); install a build that includes `PushTopics` |
+| `<package name>` | Every user of this app. The panel's **Default topic** must be exactly this |
+| `v_<versionCode>` | App version, e.g. `v_42` |
+| `country_<ISO>` | Country from the phone's region setting, e.g. `country_IN` |
+| `tz_<Zone_Name>` | Time zone, e.g. `tz_Asia_Kolkata` |
+| `utc_<p\|m>HHMM` | UTC offset for "send at 9:00 AM local time", e.g. `utc_p0530` |
 
-## 11. Audience topics (required for the Push Admin panel)
-The panel sends to **topics**, not to stored device tokens, so the app must subscribe on every launch.
-Topic names are fixed; the panel's **Audience** tab uses exactly these:
-
-| Topic | Meaning | Example |
-|---|---|---|
-| `<package name>` | Every user of this app (the panel's default target). Use the package name, not `all`: topics belong to the Firebase project, so a shared name would also reach your other apps in it | `com.example.app` |
-| `v_<versionCode>` | Installed app version | `v_42` |
-| `country_<ISO>` | Country from the device region setting | `country_IN` |
-| `tz_<Zone_Name>` | Device time zone (`/` becomes `_`) | `tz_Asia_Kolkata` |
-| `utc_<p\|m>HHMM` | Current UTC offset (`p` = plus, `m` = minus). Used for **device-local-time sends** | `utc_p0530`, `utc_m0330` |
+Topics belong to the Firebase **project**, so two apps sharing one project must not share the default topic. Use the
+package name, never `all`.
 
 `notifications/PushTopics.kt`
 ```kotlin
@@ -307,14 +248,13 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlin.math.abs
 
-/** Keeps this device subscribed to the audience topics used by the Push Admin panel. */
+/** Keeps this device subscribed to the topics used by the Push Admin panel. */
 object PushTopics {
     private const val PREFS = "push_topics"
 
-    /** Call on every app start (e.g. Application.onCreate). Only changed topics are re-subscribed. */
+    /** Call on every app start. Only changed topics are re-subscribed. */
     fun sync(context: Context) {
         forgetCacheIfProjectChanged(context)
-        // Package name = the app's Default topic in the panel (topics are shared by every app in a Firebase project)
         FirebaseMessaging.getInstance().subscribeToTopic(context.packageName)
 
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
@@ -326,16 +266,12 @@ object PushTopics {
         if (country.isNotEmpty()) swap(context, "country", "country_$country")
         swap(context, "timezone", "tz_$zone")
 
-        // UTC offset topic, used for "send at 9:00 AM device local time"
         val offsetMin = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60000
         val sign = if (offsetMin < 0) "m" else "p"
         swap(context, "offset", "utc_" + sign + "%02d%02d".format(abs(offsetMin) / 60, abs(offsetMin) % 60))
     }
 
-    /**
-     * Topic subscriptions belong to one Firebase project. If google-services.json now points at another
-     * project, the remembered topics are stale, so forget them and subscribe again.
-     */
+    /** If google-services.json now points at another project, the remembered topics are stale. */
     private fun forgetCacheIfProjectChanged(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val projectId = FirebaseApp.getInstance().options.projectId ?: return
@@ -350,55 +286,51 @@ object PushTopics {
         if (old == topic) return
         val fcm = FirebaseMessaging.getInstance()
         if (old != null) fcm.unsubscribeFromTopic(old)
-        fcm.subscribeToTopic(topic).addOnSuccessListener {
-            prefs.edit().putString(slot, topic).apply()
-        }
-    }
-}
-```
-
-Call it once at startup:
-```kotlin
-class ApplicationClass : Application() {
-    override fun onCreate() {
-        super.onCreate()
-        createNotificationChannels()
-        PushTopics.sync(this)
+        fcm.subscribeToTopic(topic).addOnSuccessListener { prefs.edit().putString(slot, topic).apply() }
     }
 }
 ```
 
 Notes:
-- Subscriptions are stored by Firebase, so nothing is kept in your own database.
-- When the user updates the app, the helper leaves the old `v_` topic and joins the new one, so "version 42 only" counts stay accurate.
-- The country comes from the phone's region setting, not from GPS. Users with no region set simply have no `country_` topic.
-- A new subscription can take a few minutes to become active on FCM's side.
-- Target several audiences in the panel with *Match all* (AND) or *Match any* (OR). FCM allows at most 5 topics per condition.
-- Language is intentionally not used.
-- **Device-local-time sends** ("9:00 AM on each phone") need the `utc_` topic. The panel creates one scheduled send per offset. The offset is refreshed each time the app starts, so a phone that crossed a daylight-saving change but was not opened since may receive it an hour off.
+- A new subscription can take a few minutes to become active.
+- Audience topics (`v_`, `country_`, `tz_`, `utc_`) are shared by every app in the project. Only the package-name topic
+  separates your apps. Use *Match all* with the default topic if you ever target an audience across several apps.
+- Moving an existing app from `all`: keep subscribing to `all` as well, leave the panel on `all`, and switch the
+  Default topic to the package name once most users have updated.
 
-## 12. Optional improvements
-- **Domain allowlist**: in `validate()`, check `uri.host` against your own domains.
-- **Play Store links**: also allow the `market` scheme if you want `market://details?id=...`.
-- **Monochrome small icon** and separate channels (Updates / Offers).
-- **Analytics**: log a `notification_open` event inside `handle()`.
-- **Variables**: the panel replaces `{app_name}`, `{date}`, `{time}` and `{day}` before sending, so the app needs no code for them.
-- **Big image**: the panel can send an `image` URL (https). Android shows it automatically when the app is in the background; the service in section 4 loads it for foreground messages (`BigPictureStyle`). Use a JPG, PNG or WebP under 1 MB. GIFs do not animate in notifications.
+## 7. Panel setup
+1. **Apps, Add app**: name, package name, **Choose key file** (Firebase console, Project settings, Service accounts,
+   Generate new private key), Default topic (fills in from the package name), channel `app_updates_channel`.
+2. **App settings, Check connection** should say *Connected*. It does not prove the app is installed or subscribed.
+3. One Firebase project, several apps: add each app separately and upload the same key to each.
 
-## 13. Security notes
-- Always validate the URL (scheme + host) before opening. Never open `intent:`, `file:`, `javascript:` or custom schemes from data.
-- Only people with access to your Firebase project can send these messages, so protect that account with 2FA.
-- Do not put secrets or personal data in notification data.
+## 8. Testing
+| Case | Steps | Expected |
+|---|---|---|
+| Foreground | App open, send | Notification appears, tap opens the link |
+| Background | Press Home, send, tap | App opens, then the link |
+| Killed | Swipe away from recents, send, tap | Same |
+| Image | Send with an https image | Shows in all three cases |
+| Invalid | `url` = `javascript:alert(1)` | Nothing opens; Logcat `NotificationLink` says "Ignored invalid url" |
 
-## Checklist for a new app
-- [ ] `firebase-messaging` dependency added
-- [ ] `NotificationLinkHandler.kt` and `AppFirebaseMessagingService.kt` copied; package names fixed
-- [ ] Service + default channel meta-data in manifest
-- [ ] `launchMode="singleTop"` on launcher activity
-- [ ] Channel created in `Application.onCreate()`
-- [ ] `handle()` called in `onCreate` and `onNewIntent`
-- [ ] `POST_NOTIFICATIONS` permission requested (Android 13+)
-- [ ] `PushTopics.kt` added and `PushTopics.sync(this)` called in `Application.onCreate()`
-- [ ] Panel: app added with the correct **FCM project ID**; audiences saved in the Audience tab
-- [ ] Tested: foreground, background, killed, invalid URL
-- [ ] Tested: send to the default topic (package name), then to one audience (e.g. `country_IN`) and confirm only matching devices receive it
+Use an emulator image **with Google Play**. Test the tap only, without Firebase:
+```bash
+adb shell am start -n com.example.app/.MainActivity -e url https://example.com
+```
+
+## 9. Troubleshooting
+| Problem | Check |
+|---|---|
+| Panel says "Sent", nothing arrives | App never subscribed: `PushTopics.sync()` runs, Default topic equals the package name, device online, wait a few minutes after first launch |
+| Arrives, tap only opens the app | `url` data key is exactly `url`; `launchMode="singleTop"` set; `handle()` called in `onCreate` and `onNewIntent` |
+| Link opens twice | Keep `removeExtra` in the handler |
+| Image missing | Foreground: the service must load it (section 3). Background: direct https JPG/PNG/WebP under 1 MB; on Samsung it shows only when expanded |
+| Another app got the notification | Both apps subscribe to the same topic. Give each its package name |
+| Audience send reaches nobody | Topic name must match exactly (`country_IN`, `v_42`); install a build that includes `PushTopics` |
+| Stopped after switching Firebase project | `PushTopics` re-subscribes when the project changes; otherwise reinstall |
+| White square icon | Use a monochrome transparent icon and set `com.google.firebase.messaging.default_notification_icon` |
+
+## 10. Security
+- Always validate the URL (scheme and host) before opening. Never open `intent:`, `file:`, `javascript:` or custom schemes.
+- Only people with access to your Firebase project and the panel can send; protect those accounts with 2FA.
+- No secrets or personal data in notification data.
